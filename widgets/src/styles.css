@@ -1,0 +1,96 @@
+/* Scan only the widget sources (not the whole repo) for class names. */
+@import "tailwindcss" source("./");
+
+/* `dark:` follows the host theme (ext-apps sets data-theme on <html>) or a .dark class. */
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+
+/*
+ * Host style variables (MCP Apps McpUiStyleVariableKey) with fallbacks. useHostStyles writes the host's
+ * values as inline styles on <html>, which override these. light-dark() picks the fallback matching the
+ * color-scheme the host applied (or the OS preference in widgets:dev).
+ */
+:root {
+  color-scheme: light dark;
+  --color-background-primary: light-dark(#ffffff, #1f1f1e);
+  --color-background-secondary: light-dark(#f6f6f4, #2a2a28);
+  --color-background-tertiary: light-dark(#ececea, #353532);
+  --color-background-info: light-dark(#e8f0fe, #1d2b44);
+  --color-background-danger: light-dark(#fdecec, #472222);
+  --color-background-success: light-dark(#e7f6ec, #1f3a28);
+  --color-background-warning: light-dark(#fdf3e1, #45361a);
+  --color-text-primary: light-dark(#1a1a19, #f2f2f0);
+  --color-text-secondary: light-dark(#5c5c58, #b8b8b3);
+  --color-text-tertiary: light-dark(#86867f, #8f8f89);
+  --color-text-info: light-dark(#1f5fbf, #8ab4f8);
+  --color-text-danger: light-dark(#b42318, #f49b93);
+  --color-text-success: light-dark(#1e7a3c, #7fd19b);
+  --color-text-warning: light-dark(#9a5b00, #f2c26b);
+  --color-border-primary: light-dark(#dcdcd8, #3d3d3a);
+  --color-border-secondary: light-dark(#ececea, #333331);
+  --color-ring-primary: light-dark(#1f5fbf, #8ab4f8);
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --border-radius-sm: 6px;
+  --border-radius-md: 8px;
+  --border-radius-lg: 12px;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+}
+
+[data-theme="dark"],
+.dark {
+  color-scheme: dark;
+}
+
+/*
+ * Tailwind tokens mapped onto the host variables:
+ * bg-surface / bg-surface-muted / bg-surface-strong, text-fg / text-fg-muted / text-fg-subtle,
+ * border-line / border-line-muted, ring-focus, {bg,text}-{info,danger,success,warning}(-soft),
+ * font-sans / font-mono, rounded-sm / rounded-md / rounded-lg.
+ */
+@theme inline {
+  --color-surface: var(--color-background-primary);
+  --color-surface-muted: var(--color-background-secondary);
+  --color-surface-strong: var(--color-background-tertiary);
+  --color-fg: var(--color-text-primary);
+  --color-fg-muted: var(--color-text-secondary);
+  --color-fg-subtle: var(--color-text-tertiary);
+  --color-line: var(--color-border-primary);
+  --color-line-muted: var(--color-border-secondary);
+  --color-focus: var(--color-ring-primary);
+  --color-info: var(--color-text-info);
+  --color-info-soft: var(--color-background-info);
+  --color-danger: var(--color-text-danger);
+  --color-danger-soft: var(--color-background-danger);
+  --color-success: var(--color-text-success);
+  --color-success-soft: var(--color-background-success);
+  --color-warning: var(--color-text-warning);
+  --color-warning-soft: var(--color-background-warning);
+  --radius-sm: var(--border-radius-sm);
+  --radius-md: var(--border-radius-md);
+  --radius-lg: var(--border-radius-lg);
+}
+
+@layer base {
+  html,
+  body {
+    margin: 0;
+    background-color: var(--color-background-primary);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button,
+  input,
+  select {
+    font: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ring-primary);
+    outline-offset: 2px;
+  }
+}
