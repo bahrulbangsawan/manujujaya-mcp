@@ -20,3 +20,6 @@ TASK.md
 
 # Local copy of production secrets (move to a password manager)
 .secrets.production
+
+# Local git worktrees
+.worktrees/
