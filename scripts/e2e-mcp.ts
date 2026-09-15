@@ -3,6 +3,10 @@
  *
  *   bun run scripts/e2e-mcp.ts --base http://localhost:8787            # OAuth flow, no upstream calls
  *   bun run scripts/e2e-mcp.ts --base https://mcp.manujujaya.com --live # + read-only Qasir calls
+ *   bun run scripts/e2e-mcp.ts --base http://localhost:8787 --live --stock-search kampas
+ *     --live also opens each widget view tool once with a small range and validates its
+ *     structuredContent against src/widgets/contract.ts (prints shapes, never values).
+ *     --stock-search sets the product-name fragment for show_stock_browser (default "a").
  *   bun run scripts/e2e-mcp.ts --base http://localhost:8787 --connect --live
  *     --connect first signs in as owner and captures a Qasir session through /connect using
  *     QASIR_E2E_USERNAME / QASIR_E2E_PIN (env or .dev.vars). A login is not a Qasir data write.
@@ -15,6 +19,19 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import {
+  APP_TOOL,
+  MCP_APP_MIME_TYPE,
+  STRUCTURED_MAX_CHARS,
+  TOOL_SCHEMAS,
+  VIEW_TOOL,
+  VIEWS,
+  WIDGET_TOOL_NAMES,
+  viewResourceUri,
+  type ToolInput,
+  type ViewName,
+} from "../src/widgets/contract";
+import { addDays, jakartaToday } from "../src/widgets/qasir-dates";
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(`--${name}`);
@@ -25,6 +42,7 @@ const opt = (name: string, fallback: string) => {
 
 const BASE = opt("base", "http://localhost:8787").replace(/\/$/, "");
 const LIVE = flag("live");
+const STOCK_SEARCH = opt("stock-search", "a");
 const REDIRECT_URI = "http://localhost:53682/callback";
 
 function devVars(): Record<string, string> {
@@ -210,6 +228,66 @@ function toolText(result: unknown): string {
   return content.map((c) => c.text ?? "").join("\n");
 }
 
+/** `_meta.ui` of a listed tool, if any. */
+function uiMeta(tool: { _meta?: Record<string, unknown> } | undefined): { resourceUri?: unknown; visibility?: unknown } | undefined {
+  const ui = tool?._meta?.ui;
+  return typeof ui === "object" && ui !== null ? (ui as { resourceUri?: unknown; visibility?: unknown }) : undefined;
+}
+
+/** Structure without values: arrays as key[length], objects as key{field count}, scalars as key:type. */
+function shapeOf(value: Record<string, unknown>): string {
+  return Object.entries(value)
+    .map(([key, v]) =>
+      Array.isArray(v) ? `${key}[${v.length}]` : v === null ? `${key}:null` : typeof v === "object" ? `${key}{${Object.keys(v).length}}` : `${key}:${typeof v}`,
+    )
+    .join(" ");
+}
+
+/** Indonesian mobile numbers (08…, 628…, +628…). Widget tool text must never contain one. */
+const PHONE_PATTERN = /(?<!\d)(?:\+?62|0)8\d{7,11}(?!\d)/;
+
+/** One small read-only call per view tool; dates are Asia/Jakarta. */
+function liveViewArgs(today: string): { [V in ViewName]: ToolInput<(typeof VIEW_TOOL)[V]> } {
+  return {
+    penjualan: { start_date: addDays(today, -1), end_date: today },
+    produk: { start_date: addDays(today, -6), end_date: today, order: "terlaris" },
+    stok: { search: STOCK_SEARCH },
+    pembelian: { status: "semua" },
+    transaksi: { start_date: today, end_date: today },
+    piutang: {},
+  };
+}
+
+async function liveWidgetChecks(client: Client): Promise<void> {
+  const args = liveViewArgs(jakartaToday(new Date()));
+  for (const view of VIEWS) {
+    const name = VIEW_TOOL[view];
+    const started = Date.now();
+    const result = await client.callTool({ name, arguments: args[view] as Record<string, unknown> });
+    const content = (result.content ?? []) as Array<{ type: string; text?: string }>;
+    const text = content[0]?.text ?? "";
+    if (result.isError) {
+      check(`live widget: ${name}`, false, text.slice(0, 160));
+      continue;
+    }
+    const size = JSON.stringify(result.structuredContent ?? null).length;
+    const parsed = TOOL_SCHEMAS[name].output.safeParse(result.structuredContent);
+    check(
+      `live widget: ${name} structuredContent matches the contract`,
+      parsed.success && size <= STRUCTURED_MAX_CHARS,
+      parsed.success
+        ? `${Date.now() - started} ms, ${size} chars`
+        : parsed.error.issues.slice(0, 3).map((issue) => issue.path.join(".") || "(root)").join(", "),
+    );
+    check(
+      `live widget: ${name} returns one text block (≤ 2,000 chars, no phone numbers)`,
+      content.length === 1 && content[0]?.type === "text" && text.length <= 2_000 && !PHONE_PATTERN.test(text),
+      `${text.length} chars`,
+    );
+    if (parsed.success) console.log(`INFO  ${name} shape: ${shapeOf(result.structuredContent as Record<string, unknown>)}`);
+  }
+}
+
 async function main() {
   console.log(`E2E against ${BASE}${LIVE ? " (live read-only Qasir calls)" : ""}`);
   if (!OWNER_PASSWORD) throw new Error("OWNER_PASSWORD not set (env or .dev.vars)");
@@ -234,12 +312,35 @@ async function main() {
 
   const tools = (await client.listTools()).tools;
   const names = tools.map((t) => t.name).sort();
+  const widgetNames = names.filter((name) => WIDGET_TOOL_NAMES.includes(name));
+  const widgetsEnabled = widgetNames.length > 0;
   // execute_mutation is only registered for qasir:write tokens when ENABLE_MUTATIONS=true.
-  check("tools/list (read-only token)", JSON.stringify(names) === '["execute","search"]', names.join(","));
+  check("tools/list (read-only token)", JSON.stringify(names.filter((name) => !WIDGET_TOOL_NAMES.includes(name))) === '["execute","search"]',
+    names.join(","));
   check("tools annotated readOnlyHint + title", tools.every((t) => t.annotations?.readOnlyHint === true && Boolean(t.title)));
+  if (widgetsEnabled) {
+    const byName = new Map(tools.map((t) => [t.name, t]));
+    check("widget tools listed (6 views + 9 app-only)", widgetNames.length === WIDGET_TOOL_NAMES.length, `${widgetNames.length}`);
+    check("view tools carry _meta.ui.resourceUri", VIEWS.every((view) => uiMeta(byName.get(VIEW_TOOL[view]))?.resourceUri === viewResourceUri(view)));
+    check("app-only tools carry _meta.ui.visibility [\"app\"]",
+      Object.values(APP_TOOL).every((name) => JSON.stringify(uiMeta(byName.get(name))?.visibility) === '["app"]'));
+  } else {
+    console.log("INFO  widget tools not listed (ENABLE_WIDGETS=false on this Worker)");
+  }
 
-  const resources = (await client.listResources()).resources.map((r) => r.uri);
+  const listedResources = (await client.listResources()).resources;
+  const resources = listedResources.map((r) => r.uri);
   check("resources/list", ["qasir://docs/index", "qasir://openapi", "qasir://capabilities", "qasir://coverage"].every((u) => resources.includes(u)), resources.join(","));
+  if (widgetsEnabled) {
+    check("resources/list has the six ui:// views (MCP App mime type)",
+      VIEWS.every((view) => listedResources.some((r) => r.uri === viewResourceUri(view) && r.mimeType === MCP_APP_MIME_TYPE)));
+    const viewResource = await client.readResource({ uri: viewResourceUri("transaksi") });
+    const viewContent = viewResource.contents[0] as { mimeType?: string; text?: string } | undefined;
+    const viewHtml = viewContent?.text ?? "";
+    check("resources/read ui://manujujaya/transaksi.html",
+      viewContent?.mimeType === MCP_APP_MIME_TYPE && viewHtml.includes('data-view="transaksi"') && viewHtml.includes('name="mj-build"'),
+      `${viewHtml.length} chars`);
+  }
   const templates = (await client.listResourceTemplates()).resourceTemplates.map((t) => t.uriTemplate);
   check("resources/templates/list", templates.some((t) => t.includes("qasir://docs/")), templates.join(","));
   const openapi = await client.readResource({ uri: "qasir://openapi" });
@@ -299,6 +400,7 @@ async function main() {
     });
     check("page size above 100 rejected before any upstream call", limit.isError === true && toolText(limit).includes("INVALID_INPUT"),
       toolText(limit).slice(0, 160));
+    if (widgetsEnabled) await liveWidgetChecks(client);
   }
   await client.close();
 

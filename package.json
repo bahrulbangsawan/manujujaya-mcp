@@ -23,7 +23,8 @@
     "widgets:build": "vite build --config widgets/vite.config.ts",
     "widgets:test": "vitest run --config widgets/vitest.config.ts",
     "widgets:check-types": "tsc --noEmit -p widgets/tsconfig.json",
-    "widgets:bundle": "bun run scripts/bundle-widgets.ts"
+    "widgets:bundle": "bun run scripts/bundle-widgets.ts",
+    "widgets:smoke": "bun run scripts/widgets-smoke.ts"
   },
   "engines": {
     "node": ">=20"
@@ -53,6 +54,7 @@
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.1",
     "happy-dom": "20.14.5",
+    "playwright-core": "1.63.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "tailwindcss": "4.3.3",
