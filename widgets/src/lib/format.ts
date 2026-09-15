@@ -1,4 +1,4 @@
-/** Indonesian (id-ID) formatters. Outputs keep Intl's no-break spaces (e.g. "Rp 1.250.000"). */
+/** Indonesian (id-ID) formatters. Outputs keep Intl's no-break spaces (e.g. "Rp 1.250.000"). */
 
 const rupiah = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
 const numberFormats = new Map<number, Intl.NumberFormat>();
