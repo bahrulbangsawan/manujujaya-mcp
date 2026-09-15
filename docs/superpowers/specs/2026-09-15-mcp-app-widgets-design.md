@@ -276,9 +276,10 @@ Common shell: title and subtitle (outlet, "Diperbarui 14.32"), refresh button, f
   - Aging bucket strip (0–7 hari · 8–30 hari · 1–3 bulan · 3–6 bulan · 6–12 bulan · 1–2 tahun · > 2 tahun), each with receivable and count; clicking one filters customers by oldest bucket.
   - Customer search (debounced, client-side) and sort (Lewat jatuh tempo · Nilai kredit terbesar · Nota terlama).
   - Table: Pelanggan, Nota, Nilai kredit, Nota tertua, Jatuh tempo terdekat (red "lewat N hari").
-  - Row expand loads `customer_debt_detail`: phone, totals (Total · Dibayar · Sisa), per-invoice rows with payments, plus buttons:
+  - Row click expands the customer (▸/▾ indicator; the tool's `customer_id` starts expanded) and loads `customer_debt_detail`: phone, totals (Total · Dibayar · Sisa), per-invoice rows with payments, plus buttons:
     - "Lihat semua transaksi" (Transaksi, `customer_id`, last 365 days)
     - "Minta Claude buat pesan penagihan" (`sendMessage` with name, invoices, remaining; user-initiated)
+  - The expanded detail is a panel directly below the table, not an inline row, because the pre-expanded `focus_customer_id` customer can sit far down the virtualized 560 px list, where an inline row would not render. A panel the user opens scrolls into view (`scrollIntoView({ block: "nearest" })`); the pre-expanded one does not scroll.
 
 Error messages (mapped from `code`, also parsing the SDK `Input validation error` text):
 - `QASIR_AUTH_EXPIRED`: "Sesi Qasir sudah berakhir. Pemilik perlu menghubungkan ulang." Button "Buka halaman Connect" (`openLink` to the error body's `connect_url`; the button is hidden when it is absent).
