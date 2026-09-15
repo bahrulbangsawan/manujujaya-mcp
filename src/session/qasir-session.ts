@@ -1,9 +1,13 @@
 import { AppError, ErrorCodes } from "../errors/codes";
 import type {
+  PendingAuthState,
   QasirSessionContext,
   QasirSessionProvider,
+  QasirSessionPublicStatus,
   QasirSessionSecrets,
+  StoredQasirSession,
 } from "./types";
+import type { SaveSessionInput } from "./qasir-sessions-do";
 
 export interface SessionEnv {
   MERCHANT_SLUG: string;
@@ -56,12 +60,18 @@ export class StaticQasirSessionProvider implements QasirSessionProvider {
 
 /** RPC surface for QasirSessionsDO stub (or test mock). */
 export interface QasirSessionsStub {
-  getSession(): Promise<import("./types").StoredQasirSession | null>;
-  saveSession(
-    input: import("./qasir-sessions-do").SaveSessionInput,
-  ): Promise<import("./types").StoredQasirSession>;
+  getSession(): Promise<StoredQasirSession | null>;
+  saveSession(input: SaveSessionInput): Promise<StoredQasirSession>;
   clear(): Promise<void>;
-  status(): Promise<import("./types").QasirSessionPublicStatus>;
+  status(): Promise<QasirSessionPublicStatus>;
+  savePending(
+    state: Omit<PendingAuthState, "createdAt" | "expiresAt"> & {
+      createdAt?: number;
+      expiresAt?: number;
+    },
+  ): Promise<PendingAuthState>;
+  getPending(): Promise<PendingAuthState | null>;
+  clearPending(): Promise<void>;
   checkRateLimit(input: {
     key: string;
     limit?: number;

@@ -26,6 +26,7 @@
     "DEFAULT_OUTLET_ID": "645203",
     "ENABLE_MUTATIONS": "false",
     "ALLOW_DEV_PSK": "false",
+    "REQUIRE_SESSION_ENCRYPTION": "false",
     "MCP_SERVER_NAME": "manujujaya-mcp",
     "MCP_SERVER_VERSION": "0.1.0"
   }

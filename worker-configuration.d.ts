@@ -7,6 +7,7 @@ interface Env {
   DEFAULT_OUTLET_ID: string;
   ENABLE_MUTATIONS: string;
   ALLOW_DEV_PSK: string;
+  REQUIRE_SESSION_ENCRYPTION: string;
   MCP_SERVER_NAME: string;
   MCP_SERVER_VERSION: string;
   QASIR_API_TOKEN?: string;
@@ -14,7 +15,10 @@ interface Env {
   QASIR_COOKIE?: string;
   DEV_PSK?: string;
   CONNECT_NONCE?: string;
+  /** Base64 32-byte AES-GCM key (or passphrase hashed via SHA-256). */
   SESSION_ENCRYPTION_KEY?: string;
   OAUTH_ISSUER?: string;
   OAUTH_AUDIENCE?: string;
+  OAUTH_CLIENT_ID?: string;
+  OAUTH_CLIENT_SECRET?: string;
 }
