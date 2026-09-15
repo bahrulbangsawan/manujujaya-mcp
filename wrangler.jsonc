@@ -1,0 +1,27 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "manujujaya-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "MUTATION_APPROVALS", "class_name": "MutationApprovalsDO" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["MutationApprovalsDO"]
+    }
+  ],
+  "vars": {
+    "MERCHANT_SLUG": "bengkel-manuju-jaya-621095",
+    "DEFAULT_OUTLET_ID": "645203",
+    "ENABLE_MUTATIONS": "false",
+    "ALLOW_DEV_PSK": "false",
+    "MCP_SERVER_NAME": "manujujaya-mcp",
+    "MCP_SERVER_VERSION": "0.1.0"
+  }
+}

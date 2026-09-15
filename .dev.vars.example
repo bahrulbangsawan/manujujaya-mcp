@@ -1,0 +1,7 @@
+# Copy to .dev.vars for local wrangler dev. Never commit .dev.vars.
+QASIR_API_TOKEN=
+QASIR_CSRF_TOKEN=
+QASIR_COOKIE=
+DEV_PSK=
+OAUTH_CLIENT_ID=
+OAUTH_CLIENT_SECRET=
