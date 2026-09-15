@@ -17,3 +17,6 @@ dist/
 coverage/
 *.log
 TASK.md
+
+# Local copy of production secrets (move to a password manager)
+.secrets.production

@@ -1,3 +1,11 @@
+import {
+  assertExpectedPage,
+  columnIndex,
+  extractTables,
+  readPagination,
+  rowCells,
+} from "./text";
+
 export interface StockAdjustmentRow {
   date: string;
   productName: string;
@@ -9,35 +17,60 @@ export interface StockAdjustmentRow {
 
 export interface StockAdjustmentPage {
   rows: StockAdjustmentRow[];
+  /** Current page (active pagination item, else the requested page). */
+  pageHint: number | null;
+  hasNext: boolean;
 }
 
-/** Parse SSR stock adjustment history table. */
-export function parseStockAdjustmentHtml(html: string): StockAdjustmentPage {
+export interface ParseStockAdjustmentOptions {
+  requestedPage?: number;
+}
+
+/** Vue root `#stockAdjustment`, the history columns, or the new-adjustment link. */
+const PAGE_MARKERS = [
+  /\bid\s*=\s*["']stockAdjustment["']/,
+  /Tanggal\s+Penyesuaian/i,
+  /\/stock\/adjustment\/form\b/,
+];
+
+/**
+ * Parse the SSR stock adjustment history table. Throws QASIR_AUTH_EXPIRED for
+ * a sign-in page and UPSTREAM_ERROR for any other unexpected page.
+ */
+export function parseStockAdjustmentHtml(
+  html: string,
+  options: ParseStockAdjustmentOptions = {},
+): StockAdjustmentPage {
+  assertExpectedPage(html, PAGE_MARKERS, "stock adjustment");
+  const tables = extractTables(html);
+  const table =
+    tables.find((t) => t.headers.some((h) => /penyesuaian/i.test(h))) ??
+    tables.find((t) => t.headers.some((h) => /produk/i.test(h)));
   const rows: StockAdjustmentRow[] = [];
-  const trBlocks = html.match(/<tr[\s\S]*?<\/tr>/gi) ?? [];
-  for (const tr of trBlocks) {
-    if (/<th[\s>]/i.test(tr)) continue;
-    const cells = [...tr.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((m) =>
-      stripTags(m[1] ?? "").trim(),
-    );
-    if (cells.length < 4) continue;
-    rows.push({
-      date: cells[0] ?? "",
-      productName: cells[1] ?? "",
-      productType: cells[2] ?? "",
-      outlet: cells[3] ?? "",
-      adjustment: cells[4] ?? "",
-      notes: cells[5] ?? "",
-    });
+  if (table) {
+    const h = table.headers;
+    const col = {
+      date: columnIndex(h, /tanggal|date/i, 0),
+      productName: columnIndex(h, /nama|produk/i, 1, /jenis/i),
+      productType: columnIndex(h, /jenis|type/i, 2),
+      outlet: columnIndex(h, /outlet/i, 3),
+      adjustment: columnIndex(h, /penyesuaian|adjust/i, 4, /tanggal|date/i),
+      notes: columnIndex(h, /catatan|note/i, 5),
+    };
+    for (const tr of table.rows) {
+      const cells = rowCells(tr);
+      if (cells.length < 4) continue; // "no data" colspan rows
+      const row: StockAdjustmentRow = {
+        date: cells[col.date] ?? "",
+        productName: cells[col.productName] ?? "",
+        productType: cells[col.productType] ?? "",
+        outlet: cells[col.outlet] ?? "",
+        adjustment: cells[col.adjustment] ?? "",
+        notes: cells[col.notes] ?? "",
+      };
+      if (row.productName || row.date) rows.push(row);
+    }
   }
-  return { rows: rows.filter((r) => r.productName.length > 0 || r.date.length > 0) };
-}
-
-function stripTags(s: string): string {
-  return s
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/\s+/g, " ")
-    .trim();
+  const pagination = readPagination(html, options.requestedPage);
+  return { rows, pageHint: pagination.page, hasNext: pagination.hasNext };
 }

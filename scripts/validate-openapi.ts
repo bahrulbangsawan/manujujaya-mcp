@@ -1,25 +1,25 @@
+/**
+ * Thin wrapper over checkOpenApi (also run by tests/unit/openapi.test.ts).
+ * Exits non-zero on operationId/path drift, missing per-operation host servers,
+ * undeclared path params, or credential-like content.
+ */
+import { checkOpenApi } from "../src/registry/checks";
 import { buildOpenApiDocument } from "../src/registry/openapi";
-import { listExposedOperations } from "../src/registry/operations";
+import { OPERATIONS } from "../src/registry/operations";
 
-const doc = buildOpenApiDocument("bengkel-manuju-jaya-621095") as {
-  openapi: string;
-  paths: Record<string, unknown>;
-};
-if (doc.openapi !== "3.1.0") {
-  console.error("Expected OpenAPI 3.1.0");
+const merchantSlug = "example-merchant-000000";
+let problems: string[];
+let paths = 0;
+try {
+  const document = buildOpenApiDocument(merchantSlug);
+  paths = Object.keys((document.paths ?? {}) as object).length;
+  problems = checkOpenApi({ document, operations: OPERATIONS, merchantSlug });
+} catch (err) {
+  problems = [err instanceof Error ? err.message : String(err)];
+}
+if (problems.length) {
+  console.error(`OpenAPI validation failed (${problems.length}):`);
+  for (const p of problems) console.error(`- ${p}`);
   process.exit(1);
 }
-const ops = listExposedOperations();
-for (const op of ops) {
-  const pathItem = doc.paths[op.pathTemplate] as Record<string, unknown> | undefined;
-  if (!pathItem || !pathItem[op.method.toLowerCase()]) {
-    console.error("Missing path in OpenAPI", op.operationId, op.pathTemplate);
-    process.exit(1);
-  }
-}
-const raw = JSON.stringify(doc);
-if (/Bearer [A-Za-z0-9_\-]{16,}/.test(raw) || raw.includes("qasir_sess=")) {
-  console.error("OpenAPI appears to contain secrets");
-  process.exit(1);
-}
-console.log(JSON.stringify({ ok: true, paths: Object.keys(doc.paths).length, ops: ops.length }));
+console.log(JSON.stringify({ ok: true, paths, operations: OPERATIONS.filter((o) => o.exposed).length }));

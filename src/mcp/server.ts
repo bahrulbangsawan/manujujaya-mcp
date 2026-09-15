@@ -1,203 +1,169 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import type { AuthPrincipal } from "../auth/verify";
-import { requireScope } from "../auth/verify";
-import { SCOPES } from "../auth/scopes";
-import { runCodemode } from "../codemode/run";
+import { APPROVAL_TTL_MS, type MutationApprovalsStub } from "../approvals/mutation-approvals";
+import { hasScope, SCOPES } from "../auth/scopes";
+import { requireScope, type AuthPrincipal } from "../auth/verify";
+import { DEFAULT_CODEMODE_LIMITS, type CodemodeLimits } from "../codemode/budget";
+import { runCodemode, type CodemodeDispatcher } from "../codemode/run";
 import { createSpecBundle } from "../codemode/spec";
 import { QasirDispatcher } from "../dispatcher/qasir-dispatcher";
-import { AppError, ErrorCodes } from "../errors/codes";
 import { log } from "../observability/log";
-import { hashArgs, type ApprovalRecord } from "../approvals/mutation-approvals";
 import type { QasirSessionProvider } from "../session/types";
+import { EXECUTE_MUTATION_TOOL, executeMutationInput, runExecuteMutation } from "./mutation-tool";
 import { registerPrompts } from "./prompts";
 import { registerResources } from "./resources";
+import { errorCodeOf, errorResult, textResult } from "./results";
 
 export interface ServerDeps {
   env: Env;
   sessions: QasirSessionProvider;
   principal: AuthPrincipal;
   readDoc: (name: string) => Promise<string | null>;
-  approvals?: {
-    get(id: string): Promise<ApprovalRecord | null>;
-    consume(input: {
-      subject: string;
-      operationId: string;
-      argsHash: string;
-      executionId: string;
-    }): Promise<ApprovalRecord>;
-  };
+  /** Per-subject approvals DO stub; execute_mutation is only offered when bound. */
+  approvals?: MutationApprovalsStub;
+  /** Defaults to a QasirDispatcher over `sessions`; injectable for tests. */
+  dispatcher?: CodemodeDispatcher;
+  /** Overrides for Code Mode limits (tests). */
+  limits?: Partial<CodemodeLimits>;
 }
 
-const codeField = z
-  .string()
-  .min(1)
-  .describe(
-    "Async JavaScript function body or async () => {...} using codemode.* APIs",
-  );
+const codeInput = z.object({
+  code: z
+    .string()
+    .min(1)
+    .max(20_000)
+    .describe("An async JavaScript arrow function, e.g. async () => { ...; return result; }"),
+});
 
-function textResult(data: unknown) {
-  const text = typeof data === "string" ? data : JSON.stringify(data, null, 2);
-  return { content: [{ type: "text" as const, text }] };
+function searchDescription(): string {
+  return [
+    "Search the Qasir POS dashboard API catalog for this merchant: operationIds, parameters, safety class and OpenAPI 3.1 schemas.",
+    "Runs your async JavaScript arrow function in an isolated sandbox with no network; `codemode.spec()` resolves to { catalog, openapi, examples }.",
+    "Use it before execute to find the operationId and required inputs, and return only the fields you need.",
+    "Example: async () => (await codemode.spec()).catalog.filter(o => o.tags.includes('products')).map(o => ({ id: o.operationId, inputs: o.inputKeys }))",
+  ].join(" ");
 }
 
-function errorResult(err: unknown) {
-  if (err instanceof AppError) {
-    return {
-      isError: true as const,
-      content: [{ type: "text" as const, text: JSON.stringify(err.toJSON()) }],
-    };
-  }
-  const message = err instanceof Error ? err.message : String(err);
-  return {
-    isError: true as const,
-    content: [
-      {
-        type: "text" as const,
-        text: JSON.stringify({ code: "UPSTREAM_ERROR", message }),
-      },
-    ],
-  };
+function executeDescription(limits: CodemodeLimits): string {
+  return [
+    "Read live data from the Qasir POS dashboard API for this merchant (products, stock, sales reports, orders, purchases, customers, suppliers).",
+    "Runs your async JavaScript arrow function in an isolated sandbox where `codemode.request({ operationId, path, query })` calls one registered read operation and resolves to { operationId, status, data }.",
+    "Write operations, fetch() and method/url/headers are rejected.",
+    `Per run: ${limits.maxRequests} requests, ${limits.maxConcurrency} concurrent, ~${Math.round(limits.maxResponseChars / 1_000_000)} MB of responses, ${Math.round(limits.timeoutMs / 1000)} s.`,
+    "Example: async () => (await codemode.request({ operationId: 'products.list', query: { page: 1, count: 20 } })).data",
+  ].join(" ");
+}
+
+function mutationDescription(): string {
+  return [
+    "Change data through the Qasir POS dashboard API (write or destructive operations such as purchases.confirmation or purchases.cancel), one registered operation per call, only after the merchant owner approves it in a browser.",
+    "Call without approvalId first: it returns APPROVAL_REQUIRED with approvalUrl, expiresAt and a preview.",
+    `After approval, call again with identical operationId, path, query and body plus approvalId; an approval runs once and expires after ${Math.round(APPROVAL_TTL_MS / 60_000)} minutes.`,
+    "Example: { operationId: 'purchases.cancel', path: { id: 123 } }",
+  ].join(" ");
 }
 
 export function createManujujayaServer(deps: ServerDeps): McpServer {
-  const server = new McpServer({
-    name: deps.env.MCP_SERVER_NAME || "manujujaya-mcp",
-    version: deps.env.MCP_SERVER_VERSION || "0.1.0",
-  });
+  // Lists are fixed per request and this stateless server never notifies.
+  const server = new McpServer(
+    {
+      name: deps.env.MCP_SERVER_NAME || "manujujaya-mcp",
+      version: deps.env.MCP_SERVER_VERSION || "0.1.0",
+    },
+    {
+      capabilities: {
+        tools: { listChanged: false },
+        resources: { listChanged: false },
+        prompts: { listChanged: false },
+      },
+    },
+  );
 
   const merchantSlug = deps.env.MERCHANT_SLUG;
   const spec = createSpecBundle(merchantSlug);
+  const limits: CodemodeLimits = { ...DEFAULT_CODEMODE_LIMITS, ...deps.limits };
   const mutationsEnabled = deps.env.ENABLE_MUTATIONS === "true";
-  const dispatcher = new QasirDispatcher({
-    sessions: deps.sessions,
-    mutationsEnabled,
-  });
-
-  registerResources(server, { merchantSlug, readDoc: deps.readDoc });
-  registerPrompts(server);
+  const dispatcher: CodemodeDispatcher =
+    deps.dispatcher ?? new QasirDispatcher({ sessions: deps.sessions, mutationsEnabled });
+  const tools: string[] = [];
+  const approvals = deps.approvals;
+  const mutationToolAvailable = Boolean(
+    mutationsEnabled && approvals && hasScope(deps.principal.scopes, SCOPES.WRITE),
+  );
 
   server.registerTool(
     "search",
     {
-      description: [
-        "Search the sanitized Qasir API catalog via sandboxed JS.",
-        "Only codemode.spec() is available (openapi + catalog + examples).",
-        "No network. Return a small subset.",
-        "Example: async () => { const { catalog } = await codemode.spec(); return catalog.filter(o => o.tags.includes('products')).slice(0,10); }",
-      ].join(" "),
-      inputSchema: { code: codeField },
+      title: "Search Qasir API catalog",
+      description: searchDescription(),
+      inputSchema: codeInput,
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ code }) => {
       try {
         requireScope(deps.principal, SCOPES.READ);
-        const result = await runCodemode({
-          loader: deps.env.LOADER,
-          code,
-          mode: "search",
-          spec,
-        });
-        return textResult(result);
+        return textResult(await runCodemode({ loader: deps.env.LOADER, code, mode: "search", spec, limits }));
       } catch (err) {
-        log("warn", "tool.search.error", { err: String(err) });
+        log("warn", "tool.search.error", { code: errorCodeOf(err) });
         return errorResult(err);
       }
     },
   );
+  tools.push("search");
 
   server.registerTool(
     "execute",
     {
-      description: [
-        "Execute read-only sandboxed JS with codemode.spec() and",
-        "codemode.request({ operationId, path, query, body }).",
-        "Never pass method/url/headers. Credentials stay on the host.",
-        "Example: async () => { const r = await codemode.request({ operationId: 'products.list', query: { page: 1, count: 5 } }); return r.data; }",
-      ].join(" "),
-      inputSchema: { code: codeField },
+      title: "Read Qasir POS data",
+      description: executeDescription(limits),
+      inputSchema: codeInput,
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     },
     async ({ code }) => {
       try {
         requireScope(deps.principal, SCOPES.READ);
-        const result = await runCodemode({
-          loader: deps.env.LOADER,
-          code,
-          mode: "execute",
-          spec,
-          dispatcher,
-        });
-        return textResult(result);
+        return textResult(
+          await runCodemode({ loader: deps.env.LOADER, code, mode: "execute", spec, dispatcher, limits, mutationToolAvailable }),
+        );
       } catch (err) {
-        log("warn", "tool.execute.error", { err: String(err) });
+        log("warn", "tool.execute.error", { code: errorCodeOf(err) });
         return errorResult(err);
       }
     },
   );
+  tools.push("execute");
 
-  server.registerTool(
-    "execute_mutation",
-    {
-      description: [
-        "Gated mutations. Requires ENABLE_MUTATIONS=true, qasir:write,",
-        "and a durable approvalId bound to subject+operationId+args hash.",
-      ].join(" "),
-      inputSchema: {
-        code: codeField,
-        operationId: z.string().describe("Primary mutation operationId"),
-        args: z.unknown().describe("Args hash basis for approval binding"),
-        approvalId: z.string().describe("Durable approval id"),
+  // The write surface exists only when enabled, the caller may write, and approvals are bound.
+  if (mutationToolAvailable && approvals) {
+    server.registerTool(
+      EXECUTE_MUTATION_TOOL,
+      {
+        title: "Run approved Qasir change",
+        description: mutationDescription(),
+        inputSchema: executeMutationInput,
+        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
       },
-    },
-    async ({ code, operationId, args, approvalId }) => {
-      try {
-        requireScope(deps.principal, SCOPES.WRITE);
-        if (!mutationsEnabled) {
-          throw new AppError(
-            ErrorCodes.MUTATION_DISABLED,
-            "Mutations disabled",
+      async (input) => {
+        try {
+          return await runExecuteMutation(
+            { env: deps.env, principal: deps.principal, approvals, dispatcher, maxOutputTokens: limits.maxOutputTokens },
+            input,
           );
+        } catch (err) {
+          log("warn", "tool.execute_mutation.error", { code: errorCodeOf(err), operationId: input.operationId });
+          return errorResult(err);
         }
-        if (!deps.approvals) {
-          throw new AppError(
-            ErrorCodes.APPROVAL_REQUIRED,
-            "Approvals DO not bound",
-          );
-        }
-        const argsHash = await hashArgs({ operationId, args });
-        const executionId = crypto.randomUUID();
-        const record = await deps.approvals.get(approvalId);
-        if (
-          !record ||
-          record.subject !== deps.principal.subject ||
-          record.operationId !== operationId ||
-          record.argsHash !== argsHash ||
-          record.status !== "approved"
-        ) {
-          throw new AppError(
-            ErrorCodes.APPROVAL_REQUIRED,
-            "Valid approved approval required",
-          );
-        }
-        await deps.approvals.consume({
-          subject: deps.principal.subject,
-          operationId,
-          argsHash,
-          executionId,
-        });
-        const result = await runCodemode({
-          loader: deps.env.LOADER,
-          code,
-          mode: "execute_mutation",
-          spec,
-          dispatcher,
-        });
-        return textResult({ executionId, result });
-      } catch (err) {
-        log("warn", "tool.execute_mutation.error", { err: String(err) });
-        return errorResult(err);
-      }
-    },
-  );
+      },
+    );
+    tools.push(EXECUTE_MUTATION_TOOL);
+  }
+
+  registerResources(server, {
+    merchantSlug,
+    readDoc: deps.readDoc,
+    capabilities: { tools, mutationsEnabled, limits },
+  });
+  registerPrompts(server);
 
   return server;
 }

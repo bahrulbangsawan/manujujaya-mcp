@@ -1,7 +1,7 @@
 import { listExposedOperations } from "./operations";
 import type { ApiOperation, HostKey } from "./types";
 
-const HOST_URLS: Record<HostKey, string> = {
+export const HOST_URLS: Record<HostKey, string> = {
   pos: "https://pos.qasir.id",
   order: "https://order.qasir.id",
   payment: "https://payment.qasir.id",
@@ -11,13 +11,34 @@ const HOST_URLS: Record<HostKey, string> = {
   merchant: "https://{merchant_slug}.qasir.id",
 };
 
-/** Sanitized OpenAPI 3.1 document for Code Mode search (no secrets/PII samples). */
-export function buildOpenApiDocument(merchantSlug: string): Record<string, unknown> {
+/** Base URL for one host; the merchant host is bound to the configured slug. */
+export function hostBaseUrl(host: HostKey, merchantSlug: string): string {
+  return HOST_URLS[host].replace("{merchant_slug}", merchantSlug);
+}
+
+/**
+ * Sanitized OpenAPI 3.1 document for Code Mode search (no secrets/PII samples).
+ * Each operation carries its own single `servers` entry, so tooling never
+ * resolves an op against the wrong host. OpenAPI paths are keyed without the
+ * host, so two ops sharing method+path on different hosts cannot both be
+ * represented; that is a registry bug and throws.
+ */
+export function buildOpenApiDocument(
+  merchantSlug: string,
+  operations: ApiOperation[] = listExposedOperations(),
+): Record<string, unknown> {
   const paths: Record<string, Record<string, unknown>> = {};
-  for (const op of listExposedOperations()) {
+  for (const op of operations) {
     const pathKey = op.pathTemplate;
+    const method = op.method.toLowerCase();
     const item = paths[pathKey] ?? {};
-    item[op.method.toLowerCase()] = operationToOpenApi(op);
+    const existing = item[method] as { operationId?: string } | undefined;
+    if (existing) {
+      throw new Error(
+        `OpenAPI path collision: ${op.method} ${pathKey} used by ${existing.operationId} and ${op.operationId}`,
+      );
+    }
+    item[method] = operationToOpenApi(op, merchantSlug);
     paths[pathKey] = item;
   }
 
@@ -27,13 +48,9 @@ export function buildOpenApiDocument(merchantSlug: string): Record<string, unkno
       title: "Qasir Dashboard API (sanitized)",
       version: "0.1.0",
       description:
-        "Generated from manujujaya-mcp operation registry. Credentials never appear here. Sample IDs in upstream docs are examples only.",
+        "Generated from manujujaya-mcp operation registry. Hosts differ per operation: use each operation's `servers` entry. Credentials never appear here. Sample IDs in upstream docs are examples only.",
     },
-    servers: Object.entries(HOST_URLS).map(([key, url]) => ({
-      url: url.replace("{merchant_slug}", merchantSlug),
-      description: key,
-    })),
-    tags: uniqueTags(listExposedOperations()).map((name) => ({ name })),
+    tags: uniqueTags(operations).map((name) => ({ name })),
     paths,
     components: {
       securitySchemes: {
@@ -54,12 +71,16 @@ export function buildOpenApiDocument(merchantSlug: string): Record<string, unkno
   };
 }
 
-function operationToOpenApi(op: ApiOperation): Record<string, unknown> {
+function operationToOpenApi(
+  op: ApiOperation,
+  merchantSlug: string,
+): Record<string, unknown> {
   return {
     operationId: op.operationId,
     summary: op.title,
     description: op.description,
     tags: op.tags,
+    servers: [{ url: hostBaseUrl(op.host, merchantSlug), description: op.host }],
     "x-qasir-host": op.host,
     "x-qasir-auth": op.authProfile,
     "x-qasir-safety": op.safety,

@@ -67,7 +67,7 @@ No `pagination`. Payload is one sale.
 | Field | Type | Sample | Notes |
 | --- | --- | --- | --- |
 | `id` | integer | `1077271206` | Same as path `sales_id` / list `sales_id` |
-| `mobile_sales_id` | UUID string | `5ecb64a3-48bb-49bd-a66a-ab24817ce912` | POS / device sale id |
+| `mobile_sales_id` | UUID string | `00000000-0000-4000-8000-000000000000` | POS / device sale id |
 | `ticket_name` | string | `""` | Empty in this capture |
 | `description` | string | `""` | |
 | `status` | integer | `2` | Matches list `status`. See list doc |
@@ -105,7 +105,7 @@ No `pagination`. Payload is one sale.
 | `partner_payment_id` | string | `""` | |
 | `payment_expired_at` | string | `""` | |
 | `total_debt` | integer | `0` | |
-| `created_by_name` | string | `"D'Talli "` | Trailing space. Same person as `user_settled` here |
+| `created_by_name` | string | `"Example Cashier "` | Trailing space. Same person as `user_settled` here |
 | `refunded_by_name` | string | `""` | |
 | `deleted_by_name` | string | `""` | |
 | `tax_aggregate` | array | `[]` | |
@@ -122,8 +122,8 @@ Amounts mix types: `total_bill` / `total_tax` are decimal strings; most other mo
 | Field | Type | Sample |
 | --- | --- | --- |
 | `id` | integer | `2198342` |
-| `name` | string | `Herman LDW (Eman Avz)` |
-| `mobile` | string | `6281240026542` |
+| `name` | string | `Example Customer (Nickname)` |
+| `mobile` | string | `6281200000000` |
 | `email` | string | `""` |
 | `image` | string | `""` |
 
@@ -227,7 +227,7 @@ Split tender not observed. `amount` on the payment is cash received; change is `
 | Field | Type | Sample | Notes |
 | --- | --- | --- | --- |
 | `id` | integer | `3306084` | |
-| `name` | string | `D'Talli ` | Trailing space. List `settle_by` |
+| `name` | string | `Example Cashier ` | Trailing space. List `settle_by` |
 | `title` | string | `""` | |
 
 ### `data.sales.installment`
@@ -269,8 +269,8 @@ Placeholder row in this capture: `{ "id": 0, "name": "", "title": "" }`. Do not 
   "merchant_id": 621095,
   "customer": {
     "id": 2198342,
-    "name": "Herman LDW (Eman Avz)",
-    "mobile": "6281240026542"
+    "name": "Example Customer (Nickname)",
+    "mobile": "6281200000000"
   },
   "carts": [
     {
@@ -296,7 +296,7 @@ Placeholder row in this capture: `{ "id": 0, "name": "", "title": "" }`. Do not 
       "paid_date": "2026-09-14 15:35:25"
     }
   ],
-  "user_settled": { "id": 3306084, "name": "D'Talli " }
+  "user_settled": { "id": 3306084, "name": "Example Cashier " }
 }
 ```
 

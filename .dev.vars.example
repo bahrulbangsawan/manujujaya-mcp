@@ -1,25 +1,26 @@
-# Copy to .dev.vars for local wrangler dev. Never commit .dev.vars.
-#
-# Local MCP + Connect gate (ALLOW_DEV_PSK must be "true" for DEV_PSK path):
-ALLOW_DEV_PSK=true
-DEV_PSK=local-dev-psk-change-me
+# Copy to .dev.vars for local `wrangler dev`. Never commit .dev.vars.
+# Values here override wrangler.jsonc "vars" locally.
 
-# Optional bootstrap when Connect UI is not used yet:
+PUBLIC_BASE_URL=http://localhost:8787
+
+# Owner password for /authorize consent, /login and /connect (>= 16 chars).
+# Production: wrangler secret put OWNER_PASSWORD
+OWNER_PASSWORD=
+
+# AES-GCM key for Qasir session storage + owner-cookie HMAC derivation.
+# Generate: openssl rand -base64 32   Production: wrangler secret put SESSION_ENCRYPTION_KEY
+SESSION_ENCRYPTION_KEY=
+REQUIRE_SESSION_ENCRYPTION=true
+
+# Local-only pre-shared bearer key (>= 16 chars). Honoured only on localhost/127.0.0.1.
+ALLOW_DEV_PSK=true
+DEV_PSK=
+
+# Optional bootstrap Qasir session when /connect is not used yet:
 QASIR_API_TOKEN=
 QASIR_CSRF_TOKEN=
 QASIR_COOKIE=
 
-# Production-style Connect gate without OAuth (optional):
-CONNECT_NONCE=
-
-# Session encryption for QasirSessionsDO (AES-GCM).
-# Generate: openssl rand -base64 32
-# When set, apiToken/csrf/cookie/pending PIN are encrypted at rest.
-SESSION_ENCRYPTION_KEY=
-# Fail closed on DO writes if key missing (use true in prod-like):
-REQUIRE_SESSION_ENCRYPTION=false
-
-OAUTH_CLIENT_ID=
-OAUTH_CLIENT_SECRET=
-OAUTH_ISSUER=
-OAUTH_AUDIENCE=
+# Live read-only E2E (scripts/e2e-*.ts). Never used by the Worker.
+QASIR_E2E_USERNAME=
+QASIR_E2E_PIN=

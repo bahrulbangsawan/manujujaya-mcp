@@ -1,4 +1,12 @@
-import type { PendingMerchant, PendingOutlet } from "../session/types";
+import type { PendingOutlet } from "../session/types";
+import { merchantSlugFromQasirHost } from "./redirect-allowlist";
+
+/** One store from a `select_merchant` response. */
+export interface ParsedMerchant {
+  id: number;
+  business_name: string;
+  subdomain_url?: string;
+}
 
 export type LoginNextStep =
   | "redirect"
@@ -13,7 +21,7 @@ export interface ParsedLoginResponse {
   message: string;
   nextStep: LoginNextStep | null;
   redirectUrl?: string;
-  merchants?: PendingMerchant[];
+  merchants?: ParsedMerchant[];
   outlets?: PendingOutlet[];
   merchant?: { id?: number };
   mobile?: string;
@@ -110,17 +118,23 @@ export function parseLoginResponse(json: unknown): ParsedLoginResponse {
   return base;
 }
 
+/**
+ * `{subdomain_url}/dashboard?tokenWeb=…`. A scheme-less subdomain_url gets https://;
+ * the caller still checks the host against MERCHANT_SLUG before fetching.
+ */
 export function buildDashboardRedirect(
   subdomainUrl: string,
   tokenWeb: string,
 ): string {
-  const base = subdomainUrl.replace(/\/$/, "");
+  const trimmed = subdomainUrl.trim();
+  const withProto = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  const base = withProto.replace(/\/+$/, "");
   return `${base}/dashboard?tokenWeb=${encodeURIComponent(tokenWeb)}`;
 }
 
-function normalizeMerchants(raw: unknown): PendingMerchant[] {
+function normalizeMerchants(raw: unknown): ParsedMerchant[] {
   if (!Array.isArray(raw)) return [];
-  const out: PendingMerchant[] = [];
+  const out: ParsedMerchant[] = [];
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
     const m = item as Record<string, unknown>;
@@ -169,13 +183,7 @@ export function slugFromSubdomainUrl(subdomainUrl: string): string | null {
   if (!raw) return null;
   try {
     const withProto = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-    const url = new URL(withProto);
-    const host = url.hostname.toLowerCase();
-    if (!host.endsWith(".qasir.id")) return null;
-    const slug = host.slice(0, -".qasir.id".length);
-    if (!slug || slug.includes(".")) return null;
-    if (slug === "www" || slug === "pos" || slug === "order") return null;
-    return slug;
+    return merchantSlugFromQasirHost(new URL(withProto).hostname);
   } catch {
     return null;
   }
@@ -187,7 +195,7 @@ export function slugFromSubdomainUrl(subdomainUrl: string): string | null {
  * if the configured slug is absent, returns an error result.
  */
 export function matchConfiguredMerchant(
-  merchants: PendingMerchant[],
+  merchants: ParsedMerchant[],
   merchantSlug: string,
 ): MatchConfiguredMerchantResult {
   const configured = merchantSlug.trim().toLowerCase();

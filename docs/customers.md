@@ -72,8 +72,8 @@ No `pagination`. Payload is one customer.
 | Field | Type | Sample | Notes |
 | --- | --- | --- | --- |
 | `id` | integer | `5442932` | Same as path `customer_id` |
-| `fullname` | string | `Beni Nuboba/Apv` | Display name. Slash / nickname suffix is merchant-entered, not a structured field |
-| `mobile` | string | `85431846` | Phone as stored. No `62` / `+` prefix in this capture. Legacy receipt `customer.mobile` can be `62…` |
+| `fullname` | string | `Example Customer/Nick` | Display name. Slash / nickname suffix is merchant-entered, not a structured field |
+| `mobile` | string | `81200000000` | Phone as stored. No `62` / `+` prefix in this capture. Legacy receipt `customer.mobile` can be `62…` |
 | `gender` | string | `M` | Observed: `M`. Other values not captured |
 | `date_of_birth` | `YYYY-MM-DD` | `0001-01-01` | Go zero date. Treat as unset — not a real birthday |
 | `email` | string | `""` | Empty in this capture |
@@ -89,8 +89,8 @@ No `pagination`. Payload is one customer.
 ```json
 {
   "id": 5442932,
-  "fullname": "Beni Nuboba/Apv",
-  "mobile": "85431846",
+  "fullname": "Example Customer/Nick",
+  "mobile": "81200000000",
   "gender": "M",
   "date_of_birth": "0001-01-01",
   "email": "",

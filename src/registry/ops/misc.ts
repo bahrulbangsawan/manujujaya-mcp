@@ -1,5 +1,5 @@
 import type { ApiOperation } from "../types";
-import { op } from "./helpers";
+import { countParam, op, pageParam } from "./helpers";
 
 export const MISC_OPS: ApiOperation[] = [
   op({
@@ -19,7 +19,7 @@ export const MISC_OPS: ApiOperation[] = [
     inputSchema: {
       type: "object",
       properties: {
-        page: { type: "integer" },
+        page: pageParam,
         start_date: { type: "string" },
         end_date: { type: "string" },
         invoice_number: { type: "string" },
@@ -65,8 +65,8 @@ export const MISC_OPS: ApiOperation[] = [
     inputSchema: {
       type: "object",
       properties: {
-        count: { type: "integer" },
-        page: { type: "integer" },
+        count: countParam,
+        page: pageParam,
         outlet_ids: { type: "string" },
         type: { type: "string" },
       },
@@ -90,8 +90,8 @@ export const MISC_OPS: ApiOperation[] = [
     inputSchema: {
       type: "object",
       properties: {
-        count: { type: "integer" },
-        page: { type: "integer" },
+        count: countParam,
+        page: pageParam,
         outlet_ids: { type: "string" },
         start_date: { type: "string" },
         end_date: { type: "string" },
@@ -132,8 +132,8 @@ export const MISC_OPS: ApiOperation[] = [
     inputSchema: {
       type: "object",
       properties: {
-        count: { type: "integer" },
-        page: { type: "integer" },
+        count: countParam,
+        page: pageParam,
         outlet_ids: { type: "string" },
         search: { type: "string" },
         status_stock: { type: "string" },
@@ -158,26 +158,6 @@ export const MISC_OPS: ApiOperation[] = [
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   }),
   op({
-    operationId: "account.menuAccess",
-    title: "Menu access",
-    description: "Chrome menu access by role.",
-    method: "GET",
-    host: "account",
-    pathTemplate: "/api/v1/menu/access",
-    sourceDocument: "routes.md",
-    evidence: "observed",
-    authProfile: "bearer",
-    responseKind: "json",
-    safety: "read",
-    tags: ["chrome", "account"],
-    exposed: true,
-    inputSchema: {
-      type: "object",
-      properties: { role_id: { type: "integer" } },
-      additionalProperties: false,
-    },
-  }),
-  op({
     operationId: "suppliers.listHtml",
     title: "List suppliers (HTML)",
     description: "SSR suppliers directory. No working JSON list — scrape HTML table.",
@@ -197,7 +177,7 @@ export const MISC_OPS: ApiOperation[] = [
         name: { type: "string" },
         phone: { type: "string" },
         location: { type: "string" },
-        page: { type: "integer" },
+        page: pageParam,
       },
       additionalProperties: false,
     },
@@ -223,7 +203,7 @@ export const MISC_OPS: ApiOperation[] = [
         variant: { type: "string" },
         sort: { type: "string" },
         type_product: { type: "string" },
-        page: { type: "integer" },
+        page: pageParam,
       },
       additionalProperties: false,
     },
@@ -234,7 +214,8 @@ export const MUTATION_OPS: ApiOperation[] = [
   op({
     operationId: "products.inventories.bulk",
     title: "Bulk stock adjustment save",
-    description: "POST bulk inventory adjustments. Mutates stock.",
+    description:
+      "POST bulk inventory adjustments. Mutates on-hand stock; docs cannot confirm whether `stock` is an absolute quantity or a delta, so a call may overwrite current stock.",
     method: "POST",
     host: "pos",
     pathTemplate: "/api/v5/products/inventories/bulk",
@@ -242,7 +223,8 @@ export const MUTATION_OPS: ApiOperation[] = [
     evidence: "documented-not-executed",
     authProfile: "bearer",
     responseKind: "json",
-    safety: "write",
+    // Destructive: `stock` may be an absolute overwrite (stock-adjustment.md), so prior on-hand qty can be lost.
+    safety: "destructive",
     tags: ["stock-adjustment", "mutation"],
     exposed: true,
     inputSchema: {
@@ -261,6 +243,8 @@ export const MUTATION_OPS: ApiOperation[] = [
               stock_min: { type: "integer" },
               track_stock: { type: "boolean" },
             },
+            required: ["variant_id", "product_id", "outlet_id", "stock"],
+            additionalProperties: false,
           },
         },
       },

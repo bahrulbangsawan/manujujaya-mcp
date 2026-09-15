@@ -1,5 +1,8 @@
 import { AppError, ErrorCodes } from "../errors/codes";
+import { sha256Hex } from "./crypto";
+import type { SaveSessionInput } from "./session-store";
 import type {
+  PendingAuthDraft,
   PendingAuthState,
   QasirSessionContext,
   QasirSessionProvider,
@@ -7,7 +10,6 @@ import type {
   QasirSessionSecrets,
   StoredQasirSession,
 } from "./types";
-import type { SaveSessionInput } from "./qasir-sessions-do";
 
 export interface SessionEnv {
   MERCHANT_SLUG: string;
@@ -29,7 +31,11 @@ export class StaticQasirSessionProvider implements QasirSessionProvider {
     this.#env = env;
   }
 
-  markExpired(): void {
+  /** Marks the static secrets expired, unless a different token is the one that failed. */
+  markExpired(failedApiToken?: string): void {
+    if (failedApiToken !== undefined && failedApiToken !== this.#env.QASIR_API_TOKEN?.trim()) {
+      return;
+    }
     this.#expired = true;
   }
 
@@ -63,37 +69,35 @@ export interface QasirSessionsStub {
   getSession(): Promise<StoredQasirSession | null>;
   saveSession(input: SaveSessionInput): Promise<StoredQasirSession>;
   clear(): Promise<void>;
+  /** Deletes the session only if sha256hex(stored apiToken) equals `tokenHash`. */
+  clearIfToken(tokenHash: string): Promise<boolean>;
   status(): Promise<QasirSessionPublicStatus>;
-  savePending(
-    state: Omit<PendingAuthState, "createdAt" | "expiresAt"> & {
-      createdAt?: number;
-      expiresAt?: number;
-    },
-  ): Promise<PendingAuthState>;
+  savePending(draft: PendingAuthDraft): Promise<PendingAuthState>;
   getPending(): Promise<PendingAuthState | null>;
   clearPending(): Promise<void>;
+  getOrCreateDeviceId(): Promise<string>;
   checkRateLimit(input: {
     key: string;
     limit?: number;
     windowMs?: number;
+    /** Report the bucket state without counting an attempt. */
+    peek?: boolean;
   }): Promise<{ ok: boolean; remaining: number; retryAfterMs: number }>;
 }
 
 export interface CompositeSessionOptions {
   env: SessionEnv;
-  subject: string;
-  /** Stub for the subject's QasirSessionsDO (RPC). */
-  sessionsDo: QasirSessionsStub;
+  /** Stub for the merchant-wide QasirSessionsDO (RPC). */
+  sessionsDo: Pick<QasirSessionsStub, "getSession" | "clear" | "clearIfToken">;
 }
 
 /**
- * Prefer Durable Object session for the authenticated subject;
+ * Prefer the merchant-wide Durable Object session captured via /connect;
  * fall back to Worker secrets QASIR_* for ops/bootstrap.
- * On markExpired, clears the DO session when present.
  */
 export class CompositeQasirSessionProvider implements QasirSessionProvider {
   #env: SessionEnv;
-  #do: QasirSessionsStub;
+  #do: CompositeSessionOptions["sessionsDo"];
   #static: StaticQasirSessionProvider;
   #preferDo = true;
 
@@ -103,14 +107,28 @@ export class CompositeQasirSessionProvider implements QasirSessionProvider {
     this.#static = new StaticQasirSessionProvider(options.env);
   }
 
-  async markExpired(): Promise<void> {
-    this.#preferDo = false;
-    try {
-      await this.#do.clear();
-    } catch {
-      // ignore DO clear failures; static path still marks expired below
+  /**
+   * With `failedApiToken`: compare-and-delete inside the DO, so a session saved
+   * after the failing request started is kept; static secrets are only marked
+   * expired when they hold that token. Without it: clear everything (legacy).
+   */
+  async markExpired(failedApiToken?: string): Promise<void> {
+    if (failedApiToken === undefined) {
+      this.#preferDo = false;
+      try {
+        await this.#do.clear();
+      } catch {
+        // ignore DO clear failures; static path still marks expired below
+      }
+      this.#static.markExpired();
+      return;
     }
-    this.#static.markExpired();
+    try {
+      await this.#do.clearIfToken(await sha256Hex(failedApiToken));
+    } catch {
+      // DO unavailable: the next getSession() will surface the problem
+    }
+    this.#static.markExpired(failedApiToken);
   }
 
   async getSession(): Promise<QasirSessionContext> {
@@ -118,7 +136,8 @@ export class CompositeQasirSessionProvider implements QasirSessionProvider {
       try {
         const stored = await this.#do.getSession();
         if (stored?.apiToken && stored.csrfToken) {
-          const slug = stored.merchantSlug || this.#env.MERCHANT_SLUG;
+          // Origin always comes from trusted config, never from stored/caller data.
+          const slug = this.#env.MERCHANT_SLUG;
           return {
             merchantSlug: slug,
             merchantOrigin: `https://${slug}.qasir.id`,
@@ -153,9 +172,10 @@ function readSecrets(env: SessionEnv): QasirSessionSecrets {
   return { apiToken, csrfToken, cookie };
 }
 
-export function sessionsDoForSubject(
+/** One shared Qasir session per configured merchant (single-tenant server). */
+export function sessionsDoForMerchant(
   ns: DurableObjectNamespace,
-  subject: string,
+  merchantSlug: string,
 ): QasirSessionsStub & DurableObjectStub {
-  return ns.get(ns.idFromName(subject)) as QasirSessionsStub & DurableObjectStub;
+  return ns.get(ns.idFromName(`merchant:${merchantSlug}`)) as QasirSessionsStub & DurableObjectStub;
 }

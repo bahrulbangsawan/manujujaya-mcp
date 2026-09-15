@@ -48,7 +48,7 @@ Same-origin. Called immediately before login on submit.
 | Field | Type | Sample | Notes |
 | --- | --- | --- | --- |
 | `language_code` | string | `"id"` | From `__AUTH.locale` |
-| `device_id` | UUID | `13ce8cb0-96f6-40d1-af84-d39561b90cdd` | Cookie + `localStorage.qasir_device_id`. Created if missing; max-age 730 days |
+| `device_id` | UUID | `00000000-0000-4000-8000-000000000000` | Cookie + `localStorage.qasir_device_id`. Created if missing; max-age 730 days |
 
 ### Live response
 
@@ -174,7 +174,7 @@ Cookie `qasir_device_id` + `localStorage.qasir_device_id`. UUID v4. Same id is s
 
 ## Implementation notes
 
-- `username` for phone is digits only: `62` + local, no `+`, no spaces. UI local field is **without** country code (`8212…` not `628212…`).
+- `username` for phone is digits only: `62` + local, no `+`, no spaces. UI local field is **without** country code (`812…` not `62812…`).
 - PIN is exactly 6 digits. Field name is `password`.
 - CSRF: GET `/sign-in` first; send `X-CSRF-TOKEN` matching the page meta / `XSRF-TOKEN` cookie.
 - After `tokenWeb` redirect, use dashboard `API_TOKEN` for [`routes.md`](routes.md) APIs. Do not send `tokenWeb` as `Authorization`.

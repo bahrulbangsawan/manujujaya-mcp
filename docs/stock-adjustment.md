@@ -42,6 +42,8 @@ Scrape the HTML for history until a list API is captured.
 
 ## 2. Product picker — stock-turnover
 
+Latency: 13–16 s per call observed live on 2026-09-15 (independent of `count`), close to the MCP server's 25 s upstream timeout.
+
 Used by `#stockAdjustment` form `loadMore` / dashboard `getMovements` in `app.min.js`.
 
 ```

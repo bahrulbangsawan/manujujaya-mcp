@@ -1,14 +1,31 @@
-<!DOCTYPE html><html><body>
-<table>
-<tr><th>Nama</th><th>Telepon</th><th>Alamat</th><th>Kota</th></tr>
+<!DOCTYPE html>
+<html lang="id">
+<head><meta charset="utf-8"><title>Supplier</title></head>
+<body>
+<ul class="nav"><li class="active"><a href="/suppliers">Supplier</a></li></ul>
+<form method="GET" action="/suppliers">
+  <input name="name" value=""><input name="phone" value=""><input name="location" value="">
+</form>
+<table class="table">
+<thead>
+<tr><th>Nama Supplier</th><th>No. Telepon</th><th>Alamat</th><th>Kota</th><th>Aksi</th></tr>
+</thead>
+<tbody>
 <tr>
   <td>MAXCOOL INDONESIA</td><td>021</td><td>Jl A</td><td>Kota Depok</td>
-  <td><a href="/supplier/form/52887">Edit</a></td>
+  <td><a href="/supplier/form/52887">Edit</a> <a href="/supplier/delete/52887">Hapus</a></td>
 </tr>
 <tr>
   <td>GUDANG SPAREPART AUTOMOTIVE</td><td>022</td><td>Jl B</td><td>Kab. Tangerang</td>
-  <td><a href="/supplier/form/49826">Edit</a></td>
+  <td><a href="/supplier/form/49826">Edit</a> <a href="/supplier/delete/49826">Hapus</a></td>
 </tr>
+</tbody>
 </table>
-<a href="?page=2">2</a>
-</body></html>
+<ul class="pagination">
+  <li class="page-item disabled" aria-disabled="true"><span class="page-link">&lsaquo;</span></li>
+  <li class="page-item active" aria-current="page"><span class="page-link">1</span></li>
+  <li class="page-item"><a class="page-link" href="https://bengkel-manuju-jaya-621095.qasir.id/suppliers?page=2">2</a></li>
+  <li class="page-item"><a class="page-link" href="https://bengkel-manuju-jaya-621095.qasir.id/suppliers?page=2" rel="next">&rsaquo;</a></li>
+</ul>
+</body>
+</html>

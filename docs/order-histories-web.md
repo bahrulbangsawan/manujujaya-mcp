@@ -121,7 +121,7 @@ One object per calendar day that has rows on this page. Newest day first in the 
 | `date_time` | `HH:MM` | `17:54` | Local time, no timezone / seconds |
 | `invoice_number` | string | `65717IV0` | 8-char invoice code |
 | `outlet_name` | string | `Toko Manuju Jaya` | Display name |
-| `settle_by` | string | `D'Talli` | Cashier. May have trailing spaces |
+| `settle_by` | string | `Example Cashier` | Cashier. May have trailing spaces |
 | `payment_mode` | string | `CASH` | Observed: `CASH`, `QRIS` |
 | `amount` | integer | `830000` | IDR. Can be `0` |
 | `sales_type_name` | string | `""` | Empty in this capture |
@@ -161,7 +161,7 @@ https://order.qasir.id{pagination.next}
   "date_time": "17:51",
   "invoice_number": "6571725N",
   "outlet_name": "Toko Manuju Jaya",
-  "settle_by": "Hj_Uni Suwarni  ",
+  "settle_by": "Example Staff  ",
   "payment_mode": "CASH",
   "amount": 830000,
   "sales_type_name": ""

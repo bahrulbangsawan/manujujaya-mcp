@@ -1,5 +1,5 @@
 import type { ApiOperation } from "../types";
-import { dateRange, op, pageCount } from "./helpers";
+import { countParam, dateRange, op, pageCount, pageParam } from "./helpers";
 
 export const CATALOG_OPS: ApiOperation[] = [
   op({
@@ -20,8 +20,8 @@ export const CATALOG_OPS: ApiOperation[] = [
     inputSchema: {
       type: "object",
       properties: {
-        page: { type: "integer" },
-        count: { type: "integer" },
+        page: pageParam,
+        count: countParam,
         name: { type: "string", description: "Echoed only; does not filter in capture" },
       },
       required: ["page", "count"],
@@ -31,7 +31,7 @@ export const CATALOG_OPS: ApiOperation[] = [
   op({
     operationId: "products.searchAjax",
     title: "Product typeahead search",
-    description: "Same-origin ajax typeahead that filters by name.",
+    description: "Same-origin ajax typeahead that filters by name; Laravel paginator with 50 rows per page, use page for more.",
     method: "GET",
     host: "merchant",
     pathTemplate: "/ajax/products/get",
@@ -44,7 +44,7 @@ export const CATALOG_OPS: ApiOperation[] = [
     exposed: true,
     inputSchema: {
       type: "object",
-      properties: { name: { type: "string" } },
+      properties: { name: { type: "string" }, page: pageParam },
       required: ["name"],
       additionalProperties: false,
     },
@@ -89,8 +89,8 @@ export const CATALOG_OPS: ApiOperation[] = [
       type: "object",
       properties: {
         inventory_id: { type: "integer" },
-        page: { type: "integer" },
-        count: { type: "integer" },
+        page: pageParam,
+        count: countParam,
         outlet_ids: { type: "string" },
         type: {
           type: "string",
@@ -107,7 +107,7 @@ export const CATALOG_OPS: ApiOperation[] = [
     operationId: "inventories.stockTurnover",
     title: "Stock turnover picker",
     description:
-      "Outlet variants with on-hand stock and last-touch dates (adjustment form picker).",
+      "Outlet variants with on-hand stock and last-touch dates (adjustment form picker). Slow upstream (13-16s observed live, near the 25s request timeout); retry once on UPSTREAM_TIMEOUT.",
     method: "GET",
     host: "pos",
     pathTemplate: "/api/v5/inventories/stock-turnover",
@@ -122,8 +122,8 @@ export const CATALOG_OPS: ApiOperation[] = [
       type: "object",
       properties: {
         outlet_ids: { type: "string" },
-        page: { type: "integer" },
-        count: { type: "integer" },
+        page: pageParam,
+        count: countParam,
         sort: { type: "string" },
         search: { type: "string" },
       },
@@ -194,12 +194,15 @@ export const CATALOG_OPS: ApiOperation[] = [
     inputSchema: {
       type: "object",
       properties: {
-        page: { type: "integer" },
-        count: { type: "integer" },
+        page: pageParam,
+        count: countParam,
         name: { type: "string" },
         outlet_ids: { type: "string" },
         outlet_ids_filter: { type: "string" },
-        access: { type: "string" },
+        access: {
+          type: "integer",
+          description: "Filter by data.access[].type (e.g. 3 Operator, 4 Non Operator); omit for all",
+        },
       },
       required: ["page", "count"],
       additionalProperties: false,
@@ -222,8 +225,8 @@ export const CATALOG_OPS: ApiOperation[] = [
     inputSchema: {
       type: "object",
       properties: {
-        page: { type: "integer" },
-        count: { type: "integer" },
+        page: pageParam,
+        count: countParam,
         ...dateRange,
         settle_by: { type: "string" },
         invoice_number: { type: "string" },
@@ -271,8 +274,8 @@ export const CATALOG_OPS: ApiOperation[] = [
     inputSchema: {
       type: "object",
       properties: {
-        page: { type: "integer" },
-        count: { type: "integer" },
+        page: pageParam,
+        count: countParam,
         ...dateRange,
         customer_id: { type: "integer" },
       },

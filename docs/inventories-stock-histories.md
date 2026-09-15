@@ -130,7 +130,7 @@ Item header for the **outlet**, not the current page of movements.
 | Field | Type | Sample | Notes |
 | --- | --- | --- | --- |
 | `id` | string | `"2745714"` | **String**. Empty when unknown |
-| `name` | string | `Hj_Uni Suwarni   ` | Trailing spaces. Empty when `id` is empty |
+| `name` | string | `Example Staff   ` | Trailing spaces. Empty when `id` is empty |
 
 ### Saved-transaction pairing (this page)
 
@@ -162,7 +162,7 @@ Walk pages with `page=N` or follow `pagination.next` on `https://pos.qasir.id`.
   "notes": "650100IC",
   "type": "sales",
   "created_date": "2026-09-07 01:02:14.608837 +0000 +0000",
-  "created_by": { "id": "2745714", "name": "Hj_Uni Suwarni   " },
+  "created_by": { "id": "2745714", "name": "Example Staff   " },
   "sales_id": "1073282611",
   "is_saved_transaction": false,
   "is_deleted_saved_transaction": false

@@ -90,8 +90,8 @@ Observed in this capture:
 
 | `type` | `name` | Users on this page |
 | --- | --- | --- |
-| `3` | `Operator` | `D'Talli`, `Alqi` |
-| `4` | `Non Operator` | `ECHON`, `RONI`, `IWAN`, `Darman` |
+| `3` | `Operator` | `Example Cashier`, `Example Operator` |
+| `4` | `Non Operator` | `EXAMPLE MECHANIC A`, `EXAMPLE MECHANIC B`, `EXAMPLE MECHANIC C`, `Example Mechanic D` |
 
 Owner / other types not in `data.access` here. Do not assume this is the full Qasir role enum.
 
@@ -106,10 +106,10 @@ Owner / other types not in `data.access` here. Do not assume this is the full Qa
 | Field | Type | Sample | Notes |
 | --- | --- | --- | --- |
 | `id` | integer | `3306084` | Same integer as legacy `user_settled.id`. Stock-histories `created_by.id` is a **string** |
-| `name` | string | `D'Talli ` | Trailing spaces. Trim before matching `settle_by` |
-| `email` | string | `darling230502@gmail.com` | Always set in this page |
-| `mobile` | string | `6285824711802` | Free-form. Observed `62…` and `0813…` on the same page |
-| `title` | string | `Asisten Kasir` | Job label, not `access` name. Can be `""`. Case / spelling vary (`MEKANIK`, `Mekanik`, `MEKANIK DIKO`) |
+| `name` | string | `Example Cashier ` | Trailing spaces. Trim before matching `settle_by` |
+| `email` | string | `staff@example.com` | Always set in this page |
+| `mobile` | string | `6281200000000` | Free-form. Observed `62…` and `0813…` on the same page |
+| `title` | string | `Asisten Kasir` | Job label, not `access` name. Can be `""`. Case / spelling vary (`MEKANIK`, `Mekanik`, `MEKANIK KEPALA`) |
 | `access` | integer | `3` | `data.access[].type` |
 | `image_file` | URL | see below | Always a URL. Default staff art when `is_default_image` |
 | `is_default_image` | boolean | `false` | `true` → placeholder, not an upload |
@@ -148,18 +148,18 @@ Trimmed names. Full `name` still has trailing spaces.
 
 | `id` | `name` | `title` | `access` | Notes |
 | --- | --- | --- | --- | --- |
-| `2783902` | `ECHON` | `MEKANIK` | `4` | |
-| `2783908` | `RONI` | `MEKANIK` | `4` | |
-| `2783909` | `IWAN` | `MEKANIK DIKO` | `4` | |
-| `2901567` | `Darman` | `Mekanik` | `4` | `is_default_image: true` |
-| `3306084` | `D'Talli` | `Asisten Kasir` | `3` | Legacy `user_settled` for `65715HNN` |
-| `3393629` | `Alqi` | `""` | `3` | Web `settle_by` on `65418CRQ` |
+| `2783902` | `EXAMPLE MECHANIC A` | `MEKANIK` | `4` | |
+| `2783908` | `EXAMPLE MECHANIC B` | `MEKANIK` | `4` | |
+| `2783909` | `EXAMPLE MECHANIC C` | `MEKANIK KEPALA` | `4` | |
+| `2901567` | `Example Mechanic D` | `Mekanik` | `4` | `is_default_image: true` |
+| `3306084` | `Example Cashier` | `Asisten Kasir` | `3` | Legacy `user_settled` for `65715HNN` |
+| `3393629` | `Example Operator` | `""` | `3` | Web `settle_by` on `65418CRQ` |
 
 Not in this list, but seen on sales / stock history:
 
 | Source | id / name |
 | --- | --- |
-| Stock-histories `created_by` | `"2745714"` / `Hj_Uni Suwarni` |
+| Stock-histories `created_by` | `"2745714"` / `Example Staff` |
 | Products `created_by` | `"2504993"` |
 
 Do not treat this 6-row page as the complete settler set.
@@ -169,12 +169,12 @@ Do not treat this 6-row page as the complete settler set.
 ```json
 {
   "id": 3306084,
-  "name": "D'Talli ",
-  "email": "darling230502@gmail.com",
-  "mobile": "6285824711802",
+  "name": "Example Cashier ",
+  "email": "staff@example.com",
+  "mobile": "6281200000000",
   "title": "Asisten Kasir",
   "access": 3,
-  "image_file": "https://etalastic.s3.ap-southeast-1.amazonaws.com/production/newuser/original/l1j3NRl2v1hItemp_image_1771384753000.jpg",
+  "image_file": "https://etalastic.s3.ap-southeast-1.amazonaws.com/production/newuser/original/example_staff_image.jpg",
   "is_default_image": false,
   "is_locked": false,
   "outlets": [{ "id": 645203, "name": "Toko Manuju Jaya" }]

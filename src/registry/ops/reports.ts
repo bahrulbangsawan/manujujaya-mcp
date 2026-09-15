@@ -1,5 +1,5 @@
 import type { ApiOperation, JsonSchemaLike } from "../types";
-import { dateRange, op } from "./helpers";
+import { countParam, dateRange, op, pageParam } from "./helpers";
 
 const salesDate: JsonSchemaLike = {
   type: "object",
@@ -11,8 +11,8 @@ const salesDate: JsonSchemaLike = {
 const salesPaged: JsonSchemaLike = {
   type: "object",
   properties: {
-    page: { type: "integer" },
-    count: { type: "integer" },
+    page: pageParam,
+    count: countParam,
     ...dateRange,
     sort: { type: "string" },
     search: { type: "string" },
@@ -28,12 +28,44 @@ const salesPaged: JsonSchemaLike = {
   additionalProperties: false,
 };
 
+/** Sales trend: live 400s without trend_type, or when a multi-day range has no equal-length comparison range. */
+const salesTrend: JsonSchemaLike = {
+  ...salesPaged,
+  properties: {
+    ...salesPaged.properties,
+    trend_type: { type: "string", enum: ["sales", "profit"] },
+    comparison_start_date: {
+      type: "string",
+      description: "YYYY-MM-DD. Required when the range spans more than one day; must cover the same number of days",
+    },
+    comparison_end_date: { type: "string", description: "YYYY-MM-DD, pairs with comparison_start_date" },
+  },
+  required: ["start_date", "end_date", "outlet_ids", "trend_type"],
+};
+
+/** Product sales: live upstream panics (500) when sort is absent. */
+const productSales: JsonSchemaLike = {
+  ...salesPaged,
+  properties: {
+    ...salesPaged.properties,
+    sort: { type: "string", description: "Leading - = desc, e.g. -quantity" },
+  },
+  required: ["start_date", "end_date", "outlet_ids", "sort"],
+};
+
+/** Microsite visit dates are parsed as Go time.RFC3339; plain YYYY-MM-DD returns 400. */
+const visitDate: JsonSchemaLike = {
+  type: "string",
+  description: "RFC3339 datetime, e.g. 2026-09-08T00:00:00+08:00 (plain YYYY-MM-DD is rejected upstream)",
+};
+
 type Def = {
   id: string;
   path: string;
   title: string;
   tags: string[];
   schema?: JsonSchemaLike;
+  note?: string;
 };
 
 const DEFS: Def[] = [
@@ -44,11 +76,25 @@ const DEFS: Def[] = [
   { id: "reports.summaries.paymentMethods", path: "/api/v5/reports/summaries/payment-methods", title: "Payment methods summary", tags: ["reports"] },
   { id: "reports.summaries.installment", path: "/api/v5/reports/summaries/installment", title: "Installment summary", tags: ["reports"] },
   { id: "reports.summaries.discounts", path: "/api/v5/reports/summaries/discounts", title: "Discounts summary", tags: ["reports"] },
-  { id: "reports.sales.trend", path: "/api/v5/reports/sales/trend", title: "Sales trend", tags: ["reports"] },
+  {
+    id: "reports.sales.trend",
+    path: "/api/v5/reports/sales/trend",
+    title: "Sales trend",
+    tags: ["reports"],
+    schema: salesTrend,
+    note: "trend_type is sales or profit; a multi-day range needs an equal-length comparison_start_date/comparison_end_date.",
+  },
   { id: "reports.sales.paymentTypes", path: "/api/v5/reports/sales/payment-types", title: "Payment types report", tags: ["reports"], schema: salesDate },
   { id: "reports.orderTypes", path: "/api/v5/reports/order-types", title: "Order types report", tags: ["reports"] },
   { id: "reports.categories", path: "/api/v5/reports/categories", title: "Category sales", tags: ["reports"] },
-  { id: "reports.products", path: "/api/v5/reports/products", title: "Product sales", tags: ["reports"] },
+  {
+    id: "reports.products",
+    path: "/api/v5/reports/products",
+    title: "Product sales",
+    tags: ["reports"],
+    schema: productSales,
+    note: "sort is required (e.g. -quantity); upstream returns 500 without it.",
+  },
   { id: "reports.brands", path: "/api/v5/reports/brands", title: "Brand sales", tags: ["reports"] },
   { id: "reports.employees", path: "/api/v5/reports/employees", title: "Employee sales", tags: ["reports"] },
   { id: "reports.discounts", path: "/api/v5/reports/discounts", title: "Discounts report", tags: ["reports"] },
@@ -69,7 +115,7 @@ const DEFS: Def[] = [
     tags: ["reports", "microsite"],
     schema: {
       type: "object",
-      properties: { date_from: { type: "string" }, date_to: { type: "string" } },
+      properties: { date_from: visitDate, date_to: visitDate },
       required: ["date_from", "date_to"],
       additionalProperties: false,
     },
@@ -82,8 +128,8 @@ const DEFS: Def[] = [
     schema: {
       type: "object",
       properties: {
-        date_from: { type: "string" },
-        date_to: { type: "string" },
+        date_from: visitDate,
+        date_to: visitDate,
         unit: { type: "string" },
       },
       required: ["date_from", "date_to"],
@@ -96,7 +142,7 @@ export const REPORT_OPS: ApiOperation[] = DEFS.map((d) =>
   op({
     operationId: d.id,
     title: d.title,
-    description: `${d.title} (observed 200 on crawl; body not snapshotted).`,
+    description: `${d.title} (observed 200 on crawl; body not snapshotted).${d.note ? ` ${d.note}` : ""}`,
     method: "GET",
     host: "pos",
     pathTemplate: d.path,
@@ -129,7 +175,7 @@ export const ATTENDANCE_OPS: ApiOperation[] = [
     inputSchema: {
       type: "object",
       properties: {
-        page: { type: "integer" },
+        page: pageParam,
         ...dateRange,
         sort: { type: "string" },
       },

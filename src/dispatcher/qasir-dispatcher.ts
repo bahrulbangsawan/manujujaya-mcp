@@ -2,13 +2,21 @@ import { AppError, ErrorCodes } from "../errors/codes";
 import { log } from "../observability/log";
 import { getOperation } from "../registry/operations";
 import type { ApiOperation } from "../registry/types";
-import type { QasirSessionProvider } from "../session/types";
 import {
-  assertAllowedUrl,
-  isRedirectAllowed,
-  resolveHost,
-} from "./allowlist";
-import { applyQuery, buildPath } from "./path";
+  validateOperationInput,
+  type ValidatedInput,
+} from "../registry/validate";
+import type { QasirSessionContext, QasirSessionProvider } from "../session/types";
+import { assertAllowedUrl, resolveHost } from "./allowlist";
+import { applyQuery, buildPath, resolveUrl } from "./path";
+import {
+  createRequestSignals,
+  discardBody,
+  fetchUpstream,
+  readBodyCapped,
+  type UpstreamContext,
+} from "./upstream";
+import { looksLikeLoginPage } from "../html/text";
 import { parseSuppliersHtml } from "../html/suppliers";
 import { parseStockAdjustmentHtml } from "../html/stock-adjustment";
 
@@ -16,6 +24,7 @@ export interface DispatchRequest {
   operationId: string;
   /** Path params only — never an absolute URL. */
   path?: Record<string, string | number>;
+  /** `undefined` values mean "not provided" and are dropped. */
   query?: Record<string, string | number | boolean | undefined>;
   body?: unknown;
 }
@@ -26,15 +35,28 @@ export interface DispatchResult {
   data: unknown;
 }
 
+export interface DispatchOptions {
+  /** Must be true (and mutations enabled) for write/destructive ops. */
+  allowMutation?: boolean;
+  /** Aborts in-flight fetches and body reads (e.g. execution deadline). */
+  signal?: AbortSignal;
+}
+
 export interface DispatcherLimits {
+  /** One deadline for the whole request, including redirects and body read. */
   timeoutMs: number;
   maxBytes: number;
+  maxRedirects: number;
 }
 
 const DEFAULT_LIMITS: DispatcherLimits = {
   timeoutMs: 25_000,
   maxBytes: 2_000_000,
+  maxRedirects: 3,
 };
+
+/** Laravel "page expired" (CSRF token / session mismatch). */
+const LARAVEL_PAGE_EXPIRED = 419;
 
 export class QasirDispatcher {
   #sessions: QasirSessionProvider;
@@ -51,10 +73,99 @@ export class QasirDispatcher {
     this.#sessions = options.sessions;
     this.#mutationsEnabled = options.mutationsEnabled ?? false;
     this.#limits = { ...DEFAULT_LIMITS, ...options.limits };
-    this.#fetchImpl = options.fetchImpl ?? fetch;
+    // Never store the bare global: calling it later as a method would bind
+    // `this` to the dispatcher and workerd throws "Illegal invocation".
+    this.#fetchImpl =
+      options.fetchImpl ?? ((input, init) => fetch(input, init));
   }
 
-  async dispatch(req: DispatchRequest): Promise<DispatchResult> {
+  /**
+   * Run every local check dispatch() would (operation gate, input validation,
+   * session lookup, URL allowlist, header construction) without contacting
+   * Qasir. execute_mutation calls this before consuming a single-use approval.
+   */
+  async preflight(req: DispatchRequest, opts: DispatchOptions = {}): Promise<void> {
+    await this.#prepare(req, opts);
+  }
+
+  async dispatch(
+    req: DispatchRequest,
+    opts: DispatchOptions = {},
+  ): Promise<DispatchResult> {
+    const { op, input, session, host, path, url, init } = await this.#prepare(req, opts);
+
+    log("info", "qasir.dispatch", {
+      operationId: op.operationId,
+      method: op.method,
+      host,
+      path,
+    });
+
+
+    const { deadline, signal } = createRequestSignals(
+      this.#limits.timeoutMs,
+      opts.signal,
+    );
+    const ctx: UpstreamContext = {
+      fetchImpl: this.#fetchImpl,
+      deadline,
+      signal,
+      timeoutMs: this.#limits.timeoutMs,
+      merchantSlug: session.merchantSlug,
+      maxRedirects: this.#limits.maxRedirects,
+    };
+    const outcome = await fetchUpstream(url, init, ctx);
+    if (outcome.kind === "login-redirect") {
+      await this.#expire(op, session, "login-redirect");
+      throw new AppError(
+        ErrorCodes.QASIR_AUTH_EXPIRED,
+        "Qasir session expired (redirected to sign-in); reconnect at /connect",
+      );
+    }
+    const response = outcome.response;
+    await this.#assertAuthStatus(op, session, response);
+    const text = await readBodyCapped(response, this.#limits.maxBytes, ctx);
+    const data = normalizeResponse(op, response.status, text, input);
+    return { operationId: op.operationId, status: response.status, data };
+  }
+
+  async #assertAuthStatus(
+    op: ApiOperation,
+    session: QasirSessionContext,
+    response: Response,
+  ): Promise<void> {
+    const status = response.status;
+    if (status === 401) {
+      discardBody(response);
+      await this.#expire(op, session, "401");
+      throw new AppError(
+        ErrorCodes.QASIR_AUTH_EXPIRED,
+        "Upstream auth failed (401); reconnect at /connect",
+      );
+    }
+    if (status === 403) {
+      // Role / outlet / feature denials: the session itself is still valid.
+      discardBody(response);
+      throw new AppError(
+        ErrorCodes.FORBIDDEN,
+        `Upstream forbidden (403) for ${op.operationId}`,
+      );
+    }
+    if (status === LARAVEL_PAGE_EXPIRED) {
+      // Dashboard cookie/CSRF expired; Bearer ops may still work, keep session.
+      discardBody(response);
+      throw new AppError(
+        ErrorCodes.QASIR_AUTH_EXPIRED,
+        "Qasir dashboard session or CSRF expired (419); reconnect at /connect",
+      );
+    }
+    if (status === 429) {
+      discardBody(response);
+      throw new AppError(ErrorCodes.QASIR_RATE_LIMITED, "Upstream rate limited");
+    }
+  }
+
+  async #prepare(req: DispatchRequest, opts: DispatchOptions) {
     const op = getOperation(req.operationId);
     if (!op || !op.exposed) {
       throw new AppError(
@@ -69,112 +180,85 @@ export class QasirDispatcher {
           "Mutations are disabled (ENABLE_MUTATIONS!=true)",
         );
       }
+      if (opts.allowMutation !== true) {
+        throw new AppError(
+          ErrorCodes.MUTATION_DISABLED,
+          "Write operations require the approved execute_mutation path",
+        );
+      }
     }
+    const input = validateOperationInput(op, {
+      path: req.path,
+      query: definedQuery(req.query),
+      body: req.body,
+    });
 
     const session = await this.#sessions.getSession();
     const host = resolveHost(op.host, session.merchantSlug);
-    const pathParams = splitPathParams(op, req);
-    const path = buildPath(op.pathTemplate, pathParams);
-    const url = new URL(`https://${host}${path}`);
-    applyQuery(url, remainingQuery(op, req));
+    const path = buildPath(op.pathTemplate, input.path);
+    const url = resolveUrl(host, path);
+    applyQuery(url, input.query);
     assertAllowedUrl(url, session.merchantSlug);
 
     const headers = buildHeaders(op, session);
-    const init: RequestInit = {
-      method: op.method,
-      headers,
-      redirect: "manual",
-      signal: AbortSignal.timeout(this.#limits.timeoutMs),
-    };
-    if (req.body !== undefined && op.method !== "GET") {
+    const init: RequestInit = { method: op.method, headers, redirect: "manual" };
+    if (input.body !== undefined) {
       headers.set("content-type", "application/json");
-      init.body = JSON.stringify(req.body);
+      init.body = JSON.stringify(input.body);
     }
+    return { op, input, session, host, path, url, init };
+  }
 
-    log("info", "qasir.dispatch", {
-      operationId: op.operationId,
-      method: op.method,
-      host,
-      path,
-    });
-
-    let response: Response;
+  /** Clear the stored session only if it still holds the token that failed. */
+  async #expire(
+    op: ApiOperation,
+    session: QasirSessionContext,
+    reason: string,
+  ): Promise<void> {
+    log("warn", "qasir.session_expired", { operationId: op.operationId, reason });
+    // A dead dashboard cookie says nothing about the API token: keep the session
+    // for cookie-csrf ops so Bearer operations keep working until reconnect.
+    if (op.authProfile !== "bearer" && op.authProfile !== "raw-token") return;
     try {
-      response = await this.#fetchImpl(url.toString(), init);
+      await this.#sessions.markExpired(session.secrets.apiToken);
     } catch (err) {
-      if (err instanceof Error && err.name === "TimeoutError") {
-        throw new AppError(ErrorCodes.UPSTREAM_TIMEOUT, "Upstream timed out");
-      }
-      throw new AppError(ErrorCodes.UPSTREAM_ERROR, "Upstream fetch failed", {
-        cause: err,
+      log("warn", "qasir.mark_expired_failed", {
+        operationId: op.operationId,
+        err: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+}
 
-    response = await followSafeRedirects(
-      response,
-      session.merchantSlug,
-      this.#fetchImpl,
-      init,
-      this.#limits.timeoutMs,
+function definedQuery(
+  query: DispatchRequest["query"],
+): Record<string, string | number | boolean> | undefined {
+  if (query === undefined || query === null) return undefined;
+  if (typeof query !== "object" || Array.isArray(query)) {
+    // Let the validator report the wrong shape.
+    return query as unknown as Record<string, string | number | boolean>;
+  }
+  const out: Record<string, string | number | boolean> = {};
+  for (const [k, v] of Object.entries(query)) {
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
+function buildHeaders(op: ApiOperation, session: QasirSessionContext): Headers {
+  try {
+    return buildHeadersUnchecked(op, session);
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    // Headers.set throws TypeError on CR/LF etc. in stored cookie/CSRF values.
+    throw new AppError(
+      ErrorCodes.QASIR_AUTH_EXPIRED,
+      "Stored Qasir credentials are malformed; reconnect at /connect",
     );
-
-    await assertAuthStatus(response, this.#sessions);
-    const buf = await response.arrayBuffer();
-    if (buf.byteLength > this.#limits.maxBytes) {
-      throw new AppError(
-        ErrorCodes.RESULT_LIMIT_EXCEEDED,
-        `Upstream body exceeds ${this.#limits.maxBytes} bytes`,
-      );
-    }
-    const text = new TextDecoder().decode(buf);
-    const data = await normalizeResponse(op, response.status, text);
-    return { operationId: op.operationId, status: response.status, data };
   }
 }
 
-function splitPathParams(
-  op: ApiOperation,
-  req: DispatchRequest,
-): Record<string, string | number> {
-  const names = [...op.pathTemplate.matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map(
-    (m) => m[1]!,
-  );
-  const out: Record<string, string | number> = {};
-  const bag = { ...(req.path ?? {}), ...(req.query ?? {}) };
-  for (const name of names) {
-    const v = bag[name] ?? (req.body as Record<string, unknown> | undefined)?.[name];
-    if (v === undefined || typeof v === "boolean") {
-      throw new AppError(ErrorCodes.INVALID_INPUT, `Missing path param ${name}`);
-    }
-    out[name] = v as string | number;
-  }
-  return out;
-}
-
-function remainingQuery(
-  op: ApiOperation,
-  req: DispatchRequest,
-): Record<string, string | number | boolean | undefined> {
-  const pathNames = new Set(
-    [...op.pathTemplate.matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map((m) => m[1]!),
-  );
-  const out: Record<string, string | number | boolean | undefined> = {
-    ...(req.query ?? {}),
-  };
-  for (const name of pathNames) delete out[name];
-  // Also drop path-only keys if mistakenly in query
-  if (req.path) {
-    for (const k of Object.keys(req.path)) {
-      if (pathNames.has(k)) delete out[k];
-    }
-  }
-  return out;
-}
-
-function buildHeaders(
-  op: ApiOperation,
-  session: Awaited<ReturnType<QasirSessionProvider["getSession"]>>,
-): Headers {
+function buildHeadersUnchecked(op: ApiOperation, session: QasirSessionContext): Headers {
   const h = new Headers();
   h.set("accept", op.responseKind === "html" ? "text/html" : "*/*");
   h.set("origin", session.merchantOrigin);
@@ -192,68 +276,32 @@ function buildHeaders(
       );
     }
     h.set("cookie", session.secrets.cookie);
-    h.set("x-requested-with", "XMLHttpRequest");
+    // Only JSON ajax routes are XHRs; SSR pages are plain navigations and
+    // Laravel switches response format on this header.
+    if (op.responseKind === "json") h.set("x-requested-with", "XMLHttpRequest");
   }
   return h;
 }
 
-async function followSafeRedirects(
-  response: Response,
-  merchantSlug: string,
-  fetchImpl: typeof fetch,
-  init: RequestInit,
-  timeoutMs: number,
-): Promise<Response> {
-  let current = response;
-  for (let i = 0; i < 3; i++) {
-    if (current.status < 300 || current.status >= 400) return current;
-    const location = current.headers.get("location");
-    if (!location || !isRedirectAllowed(location, merchantSlug)) {
-      throw new AppError(
-        ErrorCodes.REDIRECT_NOT_ALLOWED,
-        "Redirect target not allowlisted",
-      );
-    }
-    current = await fetchImpl(location, {
-      ...init,
-      method: "GET",
-      body: undefined,
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  }
-  throw new AppError(ErrorCodes.REDIRECT_NOT_ALLOWED, "Too many redirects");
-}
-
-async function assertAuthStatus(
-  response: Response,
-  sessions: QasirSessionProvider,
-): Promise<void> {
-  if (response.status === 401 || response.status === 403) {
-    await sessions.markExpired();
-    throw new AppError(
-      ErrorCodes.QASIR_AUTH_EXPIRED,
-      `Upstream auth failed (${response.status})`,
-    );
-  }
-  if (response.status === 429) {
-    throw new AppError(ErrorCodes.QASIR_RATE_LIMITED, "Upstream rate limited");
-  }
-}
-
-async function normalizeResponse(
+function normalizeResponse(
   op: ApiOperation,
   status: number,
   text: string,
-): Promise<unknown> {
+  input: ValidatedInput,
+): unknown {
+  if (status >= 300 && status < 400) {
+    throw new AppError(ErrorCodes.UPSTREAM_ERROR, `Unexpected upstream status ${status}`);
+  }
   if (op.responseKind === "html") {
     if (status >= 400) {
       throw new AppError(ErrorCodes.UPSTREAM_ERROR, `HTML upstream ${status}`);
     }
+    const page = typeof input.query.page === "number" ? input.query.page : undefined;
     if (op.operationId === "suppliers.listHtml") {
-      return parseSuppliersHtml(text);
+      return parseSuppliersHtml(text, { requestedPage: page });
     }
     if (op.operationId === "stockAdjustment.historyHtml") {
-      return parseStockAdjustmentHtml(text);
+      return parseStockAdjustmentHtml(text, { requestedPage: page });
     }
     return { htmlLength: text.length };
   }
@@ -261,7 +309,16 @@ async function normalizeResponse(
   try {
     json = text ? JSON.parse(text) : null;
   } catch {
-    throw new AppError(ErrorCodes.UPSTREAM_ERROR, "Non-JSON upstream body");
+    if (looksLikeLoginPage(text)) {
+      throw new AppError(
+        ErrorCodes.QASIR_AUTH_EXPIRED,
+        "Qasir returned a sign-in page instead of JSON; reconnect at /connect",
+      );
+    }
+    throw new AppError(
+      ErrorCodes.UPSTREAM_ERROR,
+      status >= 400 ? `Upstream ${status} (non-JSON body)` : "Non-JSON upstream body",
+    );
   }
   if (status >= 400) {
     throw new AppError(ErrorCodes.UPSTREAM_ERROR, `Upstream ${status}`, {

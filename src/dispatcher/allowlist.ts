@@ -59,15 +59,10 @@ export function assertAllowedUrl(
   }
 }
 
-export function isRedirectAllowed(
-  location: string,
-  merchantSlug: string,
-): boolean {
-  try {
-    const url = new URL(location);
-    assertAllowedUrl(url, merchantSlug);
-    return true;
-  } catch {
-    return false;
-  }
+/** Sign-in / login pages on any Qasir host: the dashboard session is gone. */
+export function isQasirLoginUrl(url: URL): boolean {
+  if (url.protocol !== "https:") return false;
+  const host = url.hostname.toLowerCase();
+  if (host !== "qasir.id" && !host.endsWith(".qasir.id")) return false;
+  return /(^|\/)(login|log-in|signin|sign-in|auth)(\/|$)/i.test(url.pathname);
 }

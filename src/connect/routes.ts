@@ -1,32 +1,33 @@
+import { clientIp } from "../auth/owner";
 import { AppError, ErrorCodes } from "../errors/codes";
 import { log } from "../observability/log";
 import {
   CompositeQasirSessionProvider,
-  sessionsDoForSubject,
+  sessionsDoForMerchant,
   StaticQasirSessionProvider,
+  type QasirSessionsStub,
 } from "../session/qasir-session";
 import { maskTokenPrefix } from "../session/types";
+import { htmlResponse } from "../web/html";
 import {
   assertFormCsrf,
   requireConnectAccess,
   withSetCookies,
   type ConnectGateEnv,
+  type ConnectIdentity,
 } from "./gate";
 import {
   connectErrorHtml,
   connectLoginPage,
   connectPendingHtml,
   connectSuccessHtml,
-  htmlResponse,
 } from "./html";
-import {
-  continueWithMerchant,
-  continueWithOutlet,
-  runQasirLoginFlow,
-} from "./login-flow";
-import { matchConfiguredMerchant } from "./login-parse";
+import { continueWithOutlet, runQasirLoginFlow } from "./login-flow";
+import { normalizeUsername } from "./login-parse";
 import { validatePasteInput } from "./paste";
 import {
+  appErrorLike,
+  jsonResponse,
   mapConnectError,
   readBody,
   respondLoginResult,
@@ -42,12 +43,58 @@ export interface ConnectEnv extends ConnectGateEnv {
   QASIR_SESSIONS: DurableObjectNamespace;
 }
 
-function clientKey(request: Request, username?: string): string {
-  const ip =
-    request.headers.get("cf-connecting-ip") ||
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    "unknown";
-  return `${ip}:${username ?? ""}`.slice(0, 200);
+const LOGIN_WINDOW_MS = 15 * 60_000;
+
+/**
+ * PIN attempts (login and outlet-select) are limited per IP, per normalized
+ * username and globally, so reformatting a phone number buys no extra guesses.
+ * The DO stores only SHA-256 hashes of these keys.
+ */
+async function pinAttemptAllowed(
+  doStub: QasirSessionsStub,
+  request: Request,
+  username: string,
+): Promise<{ ok: true } | { ok: false; retryAfterMs: number }> {
+  const user = normalizeUsername(username) || "(empty)";
+  const results = await Promise.all([
+    doStub.checkRateLimit({ key: `connect-pin:ip:${clientIp(request)}`, limit: 10, windowMs: LOGIN_WINDOW_MS }),
+    doStub.checkRateLimit({ key: `connect-pin:user:${user}`, limit: 6, windowMs: LOGIN_WINDOW_MS }),
+    doStub.checkRateLimit({ key: "connect-pin:global", limit: 20, windowMs: LOGIN_WINDOW_MS }),
+  ]);
+  const blocked = results.filter((r) => !r.ok);
+  if (!blocked.length) return { ok: true };
+  return { ok: false, retryAfterMs: Math.max(...blocked.map((r) => r.retryAfterMs)) };
+}
+
+function rateLimited(request: Request, identity: ConnectIdentity, retryAfterMs: number): Response {
+  const seconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+  const msg = `Too many sign-in attempts; retry in ${seconds}s`;
+  const res = wantsJson(request)
+    ? jsonResponse({ code: ErrorCodes.QASIR_RATE_LIMITED, message: msg }, 429)
+    : htmlResponse(connectErrorHtml({ csrfToken: identity.csrfToken, message: msg }), 429);
+  res.headers.set("retry-after", String(seconds));
+  return res;
+}
+
+function optionalText(value: string | undefined, re: RegExp): string | undefined {
+  const v = value?.trim();
+  return v && re.test(v) ? v : undefined;
+}
+
+function gone(request: Request, identity: ConnectIdentity, msg: string): Response {
+  return wantsJson(request)
+    ? jsonResponse({ code: ErrorCodes.INVALID_INPUT, message: msg }, 410)
+    : htmlResponse(connectErrorHtml({ csrfToken: identity.csrfToken, message: msg }), 410);
+}
+
+/** Runs a login step; any thrown failure also drops pending state so nothing lingers. */
+async function withPendingCleanup(doStub: QasirSessionsStub, step: () => Promise<Response>): Promise<Response> {
+  try {
+    return await step();
+  } catch (err) {
+    await doStub.clearPending().catch(() => undefined);
+    throw err;
+  }
 }
 
 export async function handleConnectRoutes(
@@ -55,234 +102,129 @@ export async function handleConnectRoutes(
   env: ConnectEnv,
 ): Promise<Response | null> {
   const url = new URL(request.url);
-  if (!url.pathname.startsWith("/connect")) return null;
+  if (url.pathname !== "/connect" && !url.pathname.startsWith("/connect/")) return null;
 
-  let identity;
+  let identity: ConnectIdentity;
   try {
     identity = await requireConnectAccess(request, env);
   } catch (err) {
-    if (err instanceof AppError) {
-      return Response.json(err.toJSON(), { status: err.status });
+    const app = appErrorLike(err);
+    if (!app) throw err;
+    if (request.method === "GET" && !wantsJson(request)) {
+      const next = encodeURIComponent(`${url.pathname}${url.search}`);
+      return new Response(null, {
+        status: 302,
+        headers: { location: `/login?next=${next}`, "cache-control": "no-store" },
+      });
     }
-    throw err;
+    return jsonResponse({ code: app.code, message: app.message }, app.status);
   }
 
-  const doStub = sessionsDoForSubject(env.QASIR_SESSIONS, identity.subject);
-  const respond = (res: Response) =>
-    withSetCookies(res, identity.setCookies);
+  const doStub = sessionsDoForMerchant(env.QASIR_SESSIONS, env.MERCHANT_SLUG);
+  const respond = (res: Response) => withSetCookies(res, identity.setCookies);
+  const loginResultOpts = {
+    request,
+    doStub,
+    subject: identity.subject,
+    csrfToken: identity.csrfToken,
+    merchantSlug: env.MERCHANT_SLUG,
+    outletIdDefault: env.DEFAULT_OUTLET_ID,
+  };
 
   try {
     if (request.method === "GET" && url.pathname === "/connect") {
       const pending = await doStub.getPending();
-      if (pending) {
-        return respond(
-          htmlResponse(
-            connectPendingHtml(identity.csrfToken, pending, undefined, {
-              merchantSlugConfigured: env.MERCHANT_SLUG,
-            }),
-          ),
-        );
-      }
-      return respond(
-        htmlResponse(connectLoginPage({ csrfToken: identity.csrfToken })),
-      );
+      const html = pending
+        ? connectPendingHtml(identity.csrfToken, pending)
+        : connectLoginPage({ csrfToken: identity.csrfToken });
+      return respond(htmlResponse(html));
     }
 
     if (request.method === "GET" && url.pathname === "/connect/status") {
-      const doStatus = await doStub.status();
-      let source: "do" | "static" | undefined = doStatus.connected
-        ? "do"
-        : undefined;
-      let connected = doStatus.connected;
-      let merchantSlug = doStatus.merchantSlug;
-      let outletId = doStatus.outletId;
-      let connectedAt = doStatus.connectedAt;
-
-      if (!connected) {
-        try {
-          const staticProv = new StaticQasirSessionProvider(env);
-          const s = await staticProv.getSession();
-          connected = true;
-          source = "static";
-          merchantSlug = s.merchantSlug;
-          outletId = s.defaultOutletId;
-        } catch {
-          // remain disconnected
-        }
-      }
-
-      return respond(
-        Response.json({
-          connected,
-          merchantSlug,
-          outletId,
-          connectedAt,
-          source,
-          pendingStep: doStatus.pendingStep,
-          subject: identity.subject,
-        }),
-      );
+      return respond(jsonResponse(await connectStatus(env, doStub, identity)));
     }
 
     if (request.method === "POST" && url.pathname === "/connect/login") {
       const body = await readBody(request);
-      assertFormCsrf(identity, body.csrf);
-      const rate = await doStub.checkRateLimit({
-        key: clientKey(request, body.username),
-      });
-      if (!rate.ok) {
-        const msg = `Too many login attempts; retry in ${Math.ceil(rate.retryAfterMs / 1000)}s`;
-        if (wantsJson(request)) {
-          return respond(
-            Response.json(
-              { code: ErrorCodes.QASIR_RATE_LIMITED, message: msg },
-              { status: 429 },
-            ),
-          );
-        }
-        return respond(
-          htmlResponse(
-            connectErrorHtml({ csrfToken: identity.csrfToken, message: msg }),
-            429,
-          ),
-        );
-      }
+      await assertFormCsrf(identity, body.csrf);
+      const rate = await pinAttemptAllowed(doStub, request, body.username ?? "");
+      if (!rate.ok) return respond(rateLimited(request, identity, rate.retryAfterMs));
       log("info", "connect.login.start", {
         subject: identity.subject,
         usernameLen: (body.username ?? "").length,
       });
-      const result = await runQasirLoginFlow({
-        username: body.username ?? "",
-        pin: body.pin ?? "",
-        timezone: body.timezone,
-        deviceType: body.deviceType,
-        merchantId: body.merchantId ? Number(body.merchantId) : undefined,
-        preferredMerchantSlug: env.MERCHANT_SLUG,
-      });
       return respond(
-        await respondLoginResult({
-          request,
-          result,
-          doStub,
-          subject: identity.subject,
-          csrfToken: identity.csrfToken,
-          merchantSlugDefault: env.MERCHANT_SLUG,
-          outletIdDefault: env.DEFAULT_OUTLET_ID,
-        }),
-      );
-    }
-
-    if (
-      request.method === "POST" &&
-      url.pathname === "/connect/select-merchant"
-    ) {
-      const body = await readBody(request);
-      assertFormCsrf(identity, body.csrf);
-      const pending = await doStub.getPending();
-      if (!pending || pending.step !== "select_merchant") {
-        throw new AppError(
-          ErrorCodes.INVALID_INPUT,
-          "No pending select_merchant step",
-        );
-      }
-      const match = matchConfiguredMerchant(
-        pending.merchants ?? [],
-        env.MERCHANT_SLUG,
-      );
-      if (!match.ok) {
-        throw new AppError(ErrorCodes.INVALID_INPUT, match.message);
-      }
-      // Ignore client-supplied merchant_id unless it matches configured merchant
-      if (body.merchantId) {
-        const clientId = Number(body.merchantId);
-        if (Number.isFinite(clientId) && clientId !== match.merchantId) {
-          throw new AppError(
-            ErrorCodes.INVALID_INPUT,
-            `Only the configured merchant (${env.MERCHANT_SLUG}) is allowed`,
-          );
-        }
-      }
-      const result = await continueWithMerchant({
-        pending,
-        merchantId: match.merchantId,
-        preferredMerchantSlug: env.MERCHANT_SLUG,
-      });
-      return respond(
-        await respondLoginResult({
-          request,
-          result,
-          doStub,
-          subject: identity.subject,
-          csrfToken: identity.csrfToken,
-          merchantSlugDefault: env.MERCHANT_SLUG,
-          outletIdDefault: env.DEFAULT_OUTLET_ID,
+        await withPendingCleanup(doStub, async () => {
+          const result = await runQasirLoginFlow({
+            username: body.username ?? "",
+            pin: body.pin ?? "",
+            deviceId: await doStub.getOrCreateDeviceId(),
+            preferredMerchantSlug: env.MERCHANT_SLUG,
+            timezone: optionalText(body.timezone, /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+){1,2}$/),
+            deviceType: optionalText(body.deviceType, /^[\x20-\x7e·]{1,64}$/),
+          });
+          return respondLoginResult({ ...loginResultOpts, result });
         }),
       );
     }
 
     if (request.method === "POST" && url.pathname === "/connect/select-outlet") {
       const body = await readBody(request);
-      assertFormCsrf(identity, body.csrf);
+      await assertFormCsrf(identity, body.csrf);
       const pending = await doStub.getPending();
-      if (!pending || pending.step !== "select_outlet") {
-        throw new AppError(
-          ErrorCodes.INVALID_INPUT,
-          "No pending select_outlet step",
-        );
+      if (!pending) {
+        throw new AppError(ErrorCodes.INVALID_INPUT, "No pending outlet selection; sign in again");
       }
-      const result = await continueWithOutlet({
-        pending,
-        outletId: Number(body.outletId),
-        merchantId: body.merchantId ? Number(body.merchantId) : undefined,
-        preferredMerchantSlug: env.MERCHANT_SLUG,
-      });
+      const rate = await pinAttemptAllowed(doStub, request, pending.username);
+      if (!rate.ok) return respond(rateLimited(request, identity, rate.retryAfterMs));
+      const outletId = /^\d{1,15}$/.test(body.outletId?.trim() ?? "") ? Number(body.outletId) : NaN;
       return respond(
-        await respondLoginResult({
-          request,
-          result,
-          doStub,
-          subject: identity.subject,
-          csrfToken: identity.csrfToken,
-          merchantSlugDefault: env.MERCHANT_SLUG,
-          outletIdDefault: env.DEFAULT_OUTLET_ID,
+        await withPendingCleanup(doStub, async () => {
+          const result = await continueWithOutlet({
+            pending,
+            outletId,
+            pin: body.pin ?? "",
+            merchantSlug: env.MERCHANT_SLUG,
+          });
+          return respondLoginResult({ ...loginResultOpts, result });
         }),
       );
     }
 
-    if (
-      url.pathname === "/connect/verify-otp" ||
-      url.pathname === "/connect/resend-otp"
-    ) {
-      const msg =
-        "OTP flows are gone (410). Connect supports phone/email + PIN only; " +
-        "OTP accounts are not supported.";
-      if (wantsJson(request)) {
-        return respond(
-          Response.json(
-            { code: ErrorCodes.INVALID_INPUT, message: msg },
-            { status: 410 },
-          ),
-        );
-      }
+    if (request.method === "POST" && url.pathname === "/connect/cancel") {
+      const body = await readBody(request);
+      await assertFormCsrf(identity, body.csrf);
+      await doStub.clearPending();
+      if (wantsJson(request)) return respond(jsonResponse({ pending: false }));
+      return respond(htmlResponse(connectLoginPage({ csrfToken: identity.csrfToken })));
+    }
+
+    if (url.pathname === "/connect/select-merchant") {
       return respond(
-        htmlResponse(
-          connectErrorHtml({ csrfToken: identity.csrfToken, message: msg }),
-          410,
+        gone(request, identity, `Merchant selection is automatic (${env.MERCHANT_SLUG}); sign in again.`),
+      );
+    }
+
+    if (url.pathname === "/connect/verify-otp" || url.pathname === "/connect/resend-otp") {
+      return respond(
+        gone(
+          request,
+          identity,
+          "OTP flows are gone (410). Connect supports phone/email + PIN only; OTP accounts are not supported.",
         ),
       );
     }
 
     if (request.method === "POST" && url.pathname === "/connect/paste") {
       const body = await readBody(request);
-      assertFormCsrf(identity, body.csrf);
+      await assertFormCsrf(identity, body.csrf);
       const validated = validatePasteInput({
         apiToken: body.apiToken ?? "",
         csrfToken: body.csrfToken ?? "",
         cookie: body.cookie ?? "",
         outletId: body.outletId,
-        merchantSlug: body.merchantSlug,
       });
-      const slug = validated.merchantSlug || env.MERCHANT_SLUG;
+      const slug = env.MERCHANT_SLUG;
       await doStub.saveSession({
         apiToken: validated.apiToken,
         csrfToken: validated.csrfToken,
@@ -291,66 +233,80 @@ export async function handleConnectRoutes(
         outletId: validated.outletId || env.DEFAULT_OUTLET_ID,
         subject: identity.subject,
       });
-      log("info", "connect.paste.success", {
-        subject: identity.subject,
-        merchantSlug: slug,
-        tokenPrefix: maskTokenPrefix(validated.apiToken),
-      });
+      const tokenPrefix = maskTokenPrefix(validated.apiToken);
+      log("info", "connect.paste.success", { subject: identity.subject, merchantSlug: slug, tokenPrefix });
       if (wantsJson(request)) {
-        return respond(
-          Response.json({
-            connected: true,
-            merchantSlug: slug,
-            apiTokenPrefix: maskTokenPrefix(validated.apiToken),
-          }),
-        );
+        return respond(jsonResponse({ connected: true, merchantSlug: slug, apiTokenPrefix: tokenPrefix }));
       }
       return respond(
         htmlResponse(
-          connectSuccessHtml({
-            csrfToken: identity.csrfToken,
-            merchantSlug: slug,
-            tokenPrefix: maskTokenPrefix(validated.apiToken),
-            via: "paste",
-          }),
+          connectSuccessHtml({ csrfToken: identity.csrfToken, merchantSlug: slug, tokenPrefix, via: "paste" }),
         ),
       );
     }
 
     if (request.method === "POST" && url.pathname === "/connect/disconnect") {
       const body = await readBody(request);
-      assertFormCsrf(identity, body.csrf);
+      await assertFormCsrf(identity, body.csrf);
       await doStub.clear();
       await doStub.clearPending();
       log("info", "connect.disconnect", { subject: identity.subject });
       if (wantsJson(request)) {
-        return respond(Response.json({ connected: false }));
+        return respond(jsonResponse({ connected: false }));
       }
       return respond(
         htmlResponse(
           connectLoginPage({
             csrfToken: identity.csrfToken,
-            statusHtml:
-              '<div class="ok">Disconnected. DO session cleared.</div>',
+            statusHtml: '<div class="ok">Disconnected. DO session cleared.</div>',
           }),
         ),
       );
     }
 
-    return respond(new Response("Not Found", { status: 404 }));
+    return respond(
+      new Response("Not Found", { status: 404, headers: { "cache-control": "no-store" } }),
+    );
   } catch (err) {
     return respond(mapConnectError(request, identity.csrfToken, err));
   }
 }
 
-/** Build session provider for MCP: DO for subject, else static secrets. */
-export function createSessionProvider(
+async function connectStatus(
   env: ConnectEnv,
-  subject: string,
-): CompositeQasirSessionProvider {
+  doStub: QasirSessionsStub,
+  identity: ConnectIdentity,
+): Promise<Record<string, unknown>> {
+  const doStatus = await doStub.status();
+  if (doStatus.connected) {
+    return {
+      connected: true,
+      merchantSlug: env.MERCHANT_SLUG,
+      outletId: doStatus.outletId,
+      connectedAt: doStatus.connectedAt,
+      source: "do",
+      subject: identity.subject,
+    };
+  }
+  try {
+    const s = await new StaticQasirSessionProvider(env).getSession();
+    return {
+      connected: true,
+      merchantSlug: s.merchantSlug,
+      outletId: s.defaultOutletId,
+      source: "static",
+      pendingStep: doStatus.pendingStep,
+      subject: identity.subject,
+    };
+  } catch {
+    return { connected: false, pendingStep: doStatus.pendingStep, subject: identity.subject };
+  }
+}
+
+/** Build the merchant-wide session provider for MCP: Connect DO session, else static secrets. */
+export function createSessionProvider(env: ConnectEnv): CompositeQasirSessionProvider {
   return new CompositeQasirSessionProvider({
     env,
-    subject,
-    sessionsDo: sessionsDoForSubject(env.QASIR_SESSIONS, subject),
+    sessionsDo: sessionsDoForMerchant(env.QASIR_SESSIONS, env.MERCHANT_SLUG),
   });
 }

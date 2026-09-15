@@ -96,7 +96,7 @@ Query: `page`, `start_date`, `end_date`, `outlet_ids`, `sort`. Page: `/report/at
 | `/api/v5/reports/merchants/visits` | `date_from`, `date_to` | `/microsite/statistic`, `/microsite/linktoko` |
 | `/api/v5/reports/merchants/visit_trending` | `date_from`, `date_to`, `unit` | same |
 
-Date keys are `date_from` / `date_to`, **not** `start_date` / `end_date`.
+Date keys are `date_from` / `date_to`, **not** `start_date` / `end_date`. Values are parsed as RFC3339 datetimes (`2026-09-08T00:00:00+08:00`); plain `YYYY-MM-DD` returns **400** `Parameter tidak valid`.
 
 ## Example request
 
@@ -122,5 +122,7 @@ Transaction **list** is [`order-histories-web.md`](order-histories-web.md), not 
 
 - Reuse `start_date` / `end_date` / `outlet_ids` across sales reports. Microsite uses `date_from` / `date_to`.
 - `sort=-quantity` is desc by qty. Do not assume other sort tokens until captured.
+- `/api/v5/reports/products` without `sort` returns **500** (upstream nil-pointer panic); always send `sort` (e.g. `-quantity`). Verified live 2026-09-15.
+- `/api/v5/reports/sales/trend` requires `trend_type` = `sales` or `profit` (400 otherwise). A multi-day range also needs `comparison_start_date` / `comparison_end_date` spanning the same number of days (400 `total days and comparison days not match`). Verified live 2026-09-15.
 - `/api/v5/reports/sales/total?status=saved` 500’d in this crawl; treat as broken for parked-sale totals.
 - Auth is a dashboard Bearer session, not a public API key. Expect expiry; refresh from a logged-in Qasir session.

@@ -10,6 +10,7 @@ import {
   listReadOperations,
 } from "../../src/registry/operations";
 import { buildOpenApiDocument, buildOperationCatalog } from "../../src/registry/openapi";
+import { MAX_PAGE_SIZE } from "../../src/registry/ops/helpers";
 
 describe("operation registry", () => {
   it("exposes only documented executable ops", () => {
@@ -26,6 +27,26 @@ describe("operation registry", () => {
         (o) => o.safety === "write" || o.safety === "destructive",
       ),
     ).toBe(true);
+  });
+
+  it("treats bulk stock adjustment as destructive (stock may be an absolute overwrite)", () => {
+    expect(getOperation("products.inventories.bulk")?.safety).toBe("destructive");
+    expect(getOperation("purchases.confirmation")?.safety).toBe("write");
+  });
+
+  it("does not expose dashboard chrome menu access", () => {
+    expect(getOperation("account.menuAccess")).toBeUndefined();
+  });
+
+  it("types users.access as the integer access type from users.md", () => {
+    expect(getOperation("users.list")?.inputSchema.properties?.access?.type).toBe("integer");
+  });
+
+  it("bounds page size and page index", () => {
+    const products = getOperation("products.list")?.inputSchema.properties;
+    expect(products?.count).toMatchObject({ type: "integer", minimum: 1, maximum: MAX_PAGE_SIZE });
+    expect(products?.page).toMatchObject({ type: "integer", minimum: 1 });
+    expect(MAX_PAGE_SIZE).toBe(100);
   });
 
   it("generates OpenAPI without secrets", () => {

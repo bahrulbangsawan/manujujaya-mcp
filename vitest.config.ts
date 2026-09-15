@@ -6,10 +6,17 @@ export default defineConfig({
     environment: "node",
     include: ["tests/**/*.test.ts"],
     testTimeout: 30_000,
+    server: {
+      deps: {
+        // Inline packages that import `cloudflare:workers` so the alias applies inside them.
+        inline: ["@cloudflare/codemode", "@cloudflare/workers-oauth-provider"],
+      },
+    },
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "src"),
+      "@": path.resolve(import.meta.dirname, "src"),
+      "cloudflare:workers": path.resolve(import.meta.dirname, "tests/stubs/cloudflare-workers.ts"),
     },
   },
 });

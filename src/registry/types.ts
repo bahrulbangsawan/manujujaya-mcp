@@ -66,6 +66,8 @@ export type CoverageStatus =
 export interface CoverageEntry {
   sourceDocument: string;
   method: string;
+  /** Upstream host; method+host+path is the manifest key (paths repeat across hosts). */
+  host: HostKey;
   path: string;
   operationId: string | null;
   auth: AuthProfile | "n/a";

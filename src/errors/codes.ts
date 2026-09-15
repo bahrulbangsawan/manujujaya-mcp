@@ -43,6 +43,34 @@ export class AppError extends Error {
   }
 }
 
+const KNOWN_CODES = new Set<string>(Object.values(ErrorCodes));
+
+/**
+ * True for AppError instances and for AppErrors that crossed a Durable Object
+ * / RPC boundary, which arrive as plain Error with name and code copied over.
+ */
+export function isAppErrorLike(
+  err: unknown,
+): err is { name: "AppError"; code: string; message: string; status?: number } {
+  if (err instanceof AppError) return true;
+  if (!err || typeof err !== "object") return false;
+  const e = err as { name?: unknown; code?: unknown };
+  return e.name === "AppError" && typeof e.code === "string";
+}
+
+/** Rehydrate an AppError-like value; unknown codes become UPSTREAM_ERROR. */
+export function toAppError(err: unknown): AppError | undefined {
+  if (err instanceof AppError) return err;
+  if (!isAppErrorLike(err)) return undefined;
+  const code = KNOWN_CODES.has(err.code)
+    ? (err.code as ErrorCode)
+    : ErrorCodes.UPSTREAM_ERROR;
+  const message = typeof err.message === "string" ? err.message : code;
+  return new AppError(code, message, {
+    ...(typeof err.status === "number" ? { status: err.status } : {}),
+  });
+}
+
 function statusFor(code: ErrorCode): number {
   switch (code) {
     case ErrorCodes.INVALID_INPUT:

@@ -1,4 +1,5 @@
 import { AppError, ErrorCodes } from "../errors/codes";
+import { constantTimeEqual, OWNER_SUBJECT } from "./owner";
 import { SCOPES, hasScope, type Scope } from "./scopes";
 
 export interface AuthPrincipal {
@@ -8,70 +9,61 @@ export interface AuthPrincipal {
   via: "oauth" | "dev-psk";
 }
 
-export interface AuthEnv {
+export interface DevPskEnv {
   ALLOW_DEV_PSK: string;
   DEV_PSK?: string;
-  /** Optional comma-separated audience / issuer placeholders for future IdP. */
-  OAUTH_ISSUER?: string;
-  OAUTH_AUDIENCE?: string;
+}
+
+const KNOWN_SCOPES = new Set<string>(Object.values(SCOPES));
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * Build the MCP principal from props the OAuth provider attached to a verified
+ * access token (ctx.props). Anything malformed fails closed.
+ */
+export function principalFromProps(props: unknown): AuthPrincipal {
+  if (!props || typeof props !== "object") {
+    throw new AppError(ErrorCodes.UNAUTHORIZED, "Missing token properties");
+  }
+  const p = props as Record<string, unknown>;
+  if (typeof p.subject !== "string" || !p.subject || !Array.isArray(p.scopes)) {
+    throw new AppError(ErrorCodes.UNAUTHORIZED, "Malformed token properties");
+  }
+  const scopes = p.scopes.filter((s): s is string => typeof s === "string" && KNOWN_SCOPES.has(s));
+  const via = p.via === "dev-psk" ? "dev-psk" : "oauth";
+  return {
+    subject: p.subject,
+    scopes,
+    clientId: typeof p.clientId === "string" ? p.clientId : undefined,
+    via,
+  };
 }
 
 /**
- * Fail-closed auth boundary. Production requires verified OAuth token.
- * Dev PSK only when ALLOW_DEV_PSK=true and DEV_PSK matches.
+ * Local-development pre-shared key. Honoured only when ALLOW_DEV_PSK=true AND
+ * the request targets a loopback host, so a misconfigured production deploy
+ * still cannot be reached with the PSK.
  */
-export async function authenticateRequest(
+export async function resolveDevPsk(
+  token: string,
   request: Request,
-  env: AuthEnv,
-): Promise<AuthPrincipal> {
-  const header = request.headers.get("authorization");
-  if (!header?.startsWith("Bearer ")) {
-    throw new AppError(ErrorCodes.UNAUTHORIZED, "Bearer token required");
-  }
-  const token = header.slice("Bearer ".length).trim();
-  if (!token) {
-    throw new AppError(ErrorCodes.UNAUTHORIZED, "Empty bearer token");
-  }
-
-  if (env.ALLOW_DEV_PSK === "true") {
-    const psk = env.DEV_PSK?.trim();
-    if (psk && timingSafeEqual(token, psk)) {
-      return {
-        subject: "dev-psk",
-        scopes: [SCOPES.READ, SCOPES.WRITE, SCOPES.ADMIN],
-        via: "dev-psk",
-      };
-    }
-  }
-
-  // Fail closed: without a configured IdP verifier, reject.
-  // Hook for @cloudflare/workers-oauth-provider / JWT verification goes here.
-  if (!env.OAUTH_ISSUER || !env.OAUTH_AUDIENCE) {
-    throw new AppError(
-      ErrorCodes.UNAUTHORIZED,
-      "OAuth not configured; set OAUTH_ISSUER/OAUTH_AUDIENCE or enable ALLOW_DEV_PSK for local only",
-    );
-  }
-
-  // Placeholder structural JWT parse without signature verification is forbidden.
-  // Until IdP is wired, reject even if issuer vars are set but no JWKS available.
-  throw new AppError(
-    ErrorCodes.UNAUTHORIZED,
-    "OAuth token verification not yet wired to IdP JWKS — fail closed",
-  );
+  env: DevPskEnv,
+): Promise<Record<string, unknown> | null> {
+  if (env.ALLOW_DEV_PSK !== "true") return null;
+  const psk = env.DEV_PSK?.trim();
+  if (!psk || psk.length < 16) return null;
+  if (!LOOPBACK_HOSTS.has(new URL(request.url).hostname)) return null;
+  if (!(await constantTimeEqual(token, psk))) return null;
+  return {
+    subject: OWNER_SUBJECT,
+    scopes: [SCOPES.READ, SCOPES.WRITE],
+    clientId: "dev-psk",
+    via: "dev-psk",
+  };
 }
 
 export function requireScope(principal: AuthPrincipal, scope: Scope): void {
   if (!hasScope(principal.scopes, scope)) {
     throw new AppError(ErrorCodes.FORBIDDEN, `Missing scope ${scope}`);
   }
-}
-
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let out = 0;
-  for (let i = 0; i < a.length; i++) {
-    out |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return out === 0;
 }

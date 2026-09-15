@@ -1,528 +1,437 @@
 # manujujaya-mcp
 
-Remote **Model Context Protocol (MCP)** server for **Bengkel Manuju Jaya** Qasir dashboard APIs, hosted on **Cloudflare Workers**.
+An MCP server that lets AI assistants such as Claude, Cursor or Codex read live data from the **Qasir POS dashboard of Bengkel Manuju Jaya**. It covers products, sales reports, orders, stock movements, purchase orders, suppliers, customers and staff. You ask questions in plain language, and the assistant looks the numbers up for you.
 
-Qasir does **not** publish an official public API. This server wraps **observed dashboard XHR** (documented under [`docs/`](docs/)) into MCP tools so agents can search the catalog and run read-only (optionally gated write) operations safely.
+It is a remote server hosted on Cloudflare Workers. There is nothing to install or run on your computer. You add one URL to your AI client and sign in once.
 
 | | |
-|---|---|
-| Endpoint | `POST /mcp` (Streamable HTTP) |
-| Protocol | MCP **2026-07-28** (SDK v2) |
-| Merchant | Hardcoded `bengkel-manuju-jaya-621095` → `https://bengkel-manuju-jaya-621095.qasir.id` |
-| Default posture | **Read-only**, fail-closed auth, secrets never enter model-written code |
+| --- | --- |
+| **MCP URL** | `https://mcp.manujujaya.com/mcp` |
+| **Sign-in** | OAuth in your browser, approved with the **owner password** |
+| **Access** | Read-only. Writes are switched off in production |
+| **Status** | Deployed and tested end to end against production. [Health check](https://mcp.manujujaya.com/healthz) |
 
 ---
 
-## Table of contents
+## Contents
 
-1. [What you get](#what-you-get)
-2. [Architecture (short)](#architecture-short)
-3. [Local setup](#local-setup)
-4. [Connect Qasir session](#connect-qasir-session)
-5. [How to use the MCP tools](#how-to-use-the-mcp-tools)
-6. [Install on every agent](#install-on-every-agent)
-7. [Copyable install prompts](#copyable-install-prompts)
-8. [Verification & E2E](#verification--e2e)
-9. [Security notes](#security-notes)
-10. [Troubleshooting](#troubleshooting)
-11. [Further docs](#further-docs)
+1. [Installation](#1-installation)
+2. [Using the server](#2-using-the-server)
+3. [Tools reference](#3-tools-reference)
+4. [Keeping it working (owner tasks)](#4-keeping-it-working-owner-tasks)
+5. [Troubleshooting](#5-troubleshooting)
+6. [How it works](#6-how-it-works)
+7. [Security and privacy](#7-security-and-privacy)
+8. [For developers](#8-for-developers)
+9. [Documentation index](#9-documentation-index)
 
 ---
 
-## What you get
+## 1. Installation
 
-### Tools
+### What you need
 
-| Tool | Purpose |
-|---|---|
-| `search` | Run sandboxed JS against the **sanitized** OpenAPI/catalog only (`codemode.spec()`). **No network.** |
-| `execute` | Run sandboxed JS with `codemode.spec()` + host `codemode.request({ operationId, path, query, body })` for **read-only** Qasir calls. |
-| `execute_mutation` | Same sandbox for **mutations** — requires `ENABLE_MUTATIONS=true`, scope `qasir:write`, and a durable approval. **Off by default.** |
+- **An MCP client that supports remote servers with OAuth**, for example Claude.ai, Claude Desktop, Claude Code, Cursor, VS Code with GitHub Copilot, or Codex. Clients that only accept a static API key or a local (stdio) server cannot connect.
+- **The owner password.** Every new connection is approved in a browser with this password. If you are not the owner, ask the owner to approve the connection with you.
+- **A connected Qasir session.** The owner does this once in a browser (step 1). Every client shares the same session.
 
-Full descriptions: [`docs/mcp-tools.md`](docs/mcp-tools.md).
+### Step 1 (owner, one time): connect the Qasir account
+
+The server reads Qasir through a dashboard session that you give it once. Your PIN is never stored.
+
+1. Open **<https://mcp.manujujaya.com/connect>** and sign in with the owner password.
+2. Enter the Qasir **phone number or email** and the **6-digit PIN** of an account that can open the Bengkel Manuju Jaya dashboard.
+3. If Qasir asks you to pick an outlet, pick one and enter the PIN again.
+4. The page should say **Connected to bengkel-manuju-jaya-621095**.
+
+Skip this step if the page already shows the session as connected. Qasir dashboard sessions expire eventually. When tools start returning `QASIR_AUTH_EXPIRED`, repeat this step. The Qasir account must sign in with phone/email + PIN only; accounts that require an OTP code are not supported. If sign-in cannot capture the session automatically, the page offers a paste fallback, described in [docs/connect-qasir.md](docs/connect-qasir.md).
+
+### Step 2: add the server to your AI client
+
+Pick your client below. In every case the URL is `https://mcp.manujujaya.com/mcp`. You do not need a client ID, client secret or API key, because the client registers itself automatically.
+
+#### Claude.ai and Claude Desktop
+
+1. Open **Settings → Connectors → Add custom connector**.
+2. Name: `Manuju Jaya Qasir`. URL: `https://mcp.manujujaya.com/mcp`. Leave the advanced OAuth fields empty.
+3. Choose **Add**, then **Connect**. A browser page opens; finish [step 3](#step-3-approve-the-connection).
+4. In a chat, open the tools menu and make sure **Manuju Jaya Qasir** is turned on.
+
+A connector added on Claude.ai also appears in Claude Desktop for the same account. Custom connectors are only available on Claude plans that include them. *Not yet tested against this server; see [Troubleshooting](#5-troubleshooting) if the connection fails.*
+
+#### Claude Code (tested with version 2.1.272)
+
+```bash
+claude mcp add --transport http manujujaya https://mcp.manujujaya.com/mcp
+```
+
+Add `--scope user` to use it in every project, or `--scope project` to share it through the project's `.mcp.json`. Then start Claude Code, run `/mcp`, select **manujujaya** and choose **Authenticate**. A browser opens; finish [step 3](#step-3-approve-the-connection).
+
+#### Cursor
+
+Add this to `~/.cursor/mcp.json` (all projects) or `.cursor/mcp.json` (one project):
+
+```json
+{
+  "mcpServers": {
+    "manujujaya": { "url": "https://mcp.manujujaya.com/mcp" }
+  }
+}
+```
+
+Open **Cursor Settings → MCP**. When the server shows that it needs a login, start the sign-in and finish [step 3](#step-3-approve-the-connection). *Not yet tested against this server.*
+
+#### VS Code (GitHub Copilot)
+
+Add this to `.vscode/mcp.json`. Note that the top-level key is `servers`:
+
+```json
+{
+  "servers": {
+    "manujujaya": { "type": "http", "url": "https://mcp.manujujaya.com/mcp" }
+  }
+}
+```
+
+Start the server from the **Start** link above it in the file, or from the MCP servers view, and accept the sign-in prompt. *Not yet tested against this server.*
+
+#### Codex CLI
+
+```bash
+codex mcp add manujujaya --url https://mcp.manujujaya.com/mcp
+codex mcp login manujujaya
+```
+
+*Not yet tested against this server.*
+
+#### Other clients
+
+Any client that supports **remote Streamable HTTP MCP servers with OAuth** (dynamic client registration or client ID metadata documents, with PKCE) should work. Give it the URL above and let it run the browser sign-in.
+
+### Step 3: approve the connection
+
+The client opens the server's **Authorize MCP client** page in your browser.
+
+1. **Check who is asking.** The page shows the client's self-declared name and where it redirects to. For Claude.ai and Claude Desktop that is `https://claude.ai`; for Claude Code, Cursor, VS Code and other desktop or CLI tools it is usually `http://localhost` or `http://127.0.0.1`. If you did not just start this connection, or the redirect looks wrong, choose **Deny**.
+2. **Leave only `qasir:read` ticked.** `qasir:write` is only offered when changes are enabled on the server, and should only be ticked when you need them.
+3. **Enter the owner password** and choose **Approve**. If you signed in on this browser in the last 8 hours, the password is not asked again.
+
+The browser returns to your client, which is now connected. The connection stays signed in for up to 180 days; after that, or after removing and re-adding the server, you approve it again.
+
+### Step 4: check that it works
+
+Ask your assistant:
+
+> Using the Manuju Jaya Qasir tools, list which report operations are available.
+
+It should call the `search` tool and answer with operation names such as `reports.summaries.sales`. Then try a live question:
+
+> Show me the first 5 products in Qasir with their prices.
+
+If that returns data, you are done. If it returns `QASIR_AUTH_EXPIRED`, do [step 1](#step-1-owner-one-time-connect-the-qasir-account) again. In Claude Code you can also run `claude mcp list` and look for **manujujaya** marked as connected.
+
+### Removing the server
+
+Remove it in your client (for example Settings → Connectors on Claude.ai, or `claude mcp remove manujujaya` in Claude Code). To cut off a client on the server side as well, see [Revoking a client](docs/architecture/operations.md).
+
+---
+
+## 2. Using the server
+
+### How the assistant uses it
+
+The server does not have one tool per report. It gives the assistant two general tools instead:
+
+1. **`search`** looks through the catalog of available Qasir operations, such as "sales summary" or "list purchases", and their required inputs. It never contacts Qasir.
+2. **`execute`** runs a short JavaScript function, written by the assistant, that calls those operations, pages through results and adds them up. Only the final summary comes back into the chat.
+
+You do not write any code. The assistant writes these small scripts itself. They run in a locked-down sandbox with no internet access and no access to your Qasir credentials; see [Security and privacy](#7-security-and-privacy).
+
+### What you can ask
+
+| Area | Example questions |
+| --- | --- |
+| Sales | "What were total sales, number of transactions and average ticket last week?" · "Compare sales by payment method this month." · "Which employees sold the most in August?" |
+| Products | "What are our top 10 products this month?" · "Find all products with 'filter' in the name and their prices." · "Which category sells best?" |
+| Orders | "List orders from 1 to 7 September with their totals." · "Show the details of sale 12345." · "Which installment orders are still outstanding?" |
+| Stock | "Trace the stock movements for this inventory item." · "Show recent stock adjustments." · "What does stock turnover look like?" |
+| Purchasing | "Which purchase orders are still open?" · "What items are on purchase order 1147218?" · "List our suppliers." |
+| Customers and staff | "Show the customer survey results." · "Look up customer 67890." · "List staff accounts." |
+| Other | "Are there pending payments?" · "How many visits did the online store get last month?" · "Show attendance for last week." |
+
+### Data that is available
+
+45 read operations are exposed, grouped as follows. Ask the assistant to run `search` for the exact inputs.
+
+| Area | Operations |
+| --- | --- |
+| Reports | Sales, transaction, sales-insight, sales-type, payment-method, installment and discount summaries; sales trend; payment types; order types; category, product, brand, employee, discount and modifier sales; top products; promo insight; ingredient stock summaries; online-store (microsite) visits and trend; attendance |
+| Products and stock | Product list and name search; stock histories per item; stock turnover; stock adjustment history; product reminders; ingredients and recipe totals |
+| Orders | Order histories (web and installment); single order detail |
+| Purchasing | Purchase order list and line items; supplier list |
+| People | Customer profile; customer survey and survey settings; staff list |
+| Payments | Pending payments and their attributes |
+
+The full list, with the source document for each endpoint and the endpoints that are deliberately left out, is in [docs/architecture/coverage.md](docs/architecture/coverage.md).
+
+### Tips for good answers
+
+- **Give a date range** in plain words or as `YYYY-MM-DD`. Most reports need a start and end date.
+- **Give the outlet** if the assistant asks for it. Most reports and order histories require an outlet ID, and the server does not pick one for you. You can find the outlet ID in the Qasir dashboard.
+- **Ask for summaries**, not full dumps. Each script can make at most 50 requests of up to 100 rows each, and the answer is capped at about 24,000 characters. For large ranges, ask for totals or top-N lists.
+- **Treat results as confidential.** Answers can contain real customer names, phone numbers and sales figures.
+
+### Built-in prompts
+
+Clients that show MCP prompts (for example as slash commands) offer three ready-made workflows:
+
+| Prompt | Inputs | What it does |
+| --- | --- | --- |
+| `sales_overview` | `start_date`, `end_date`, optional `outlet_ids` | Sales KPIs and notable invoices for a date range |
+| `trace_stock_movement` | `inventory_id`, optional `outlet_ids` | Recent movements and running balance for one stock item |
+| `review_purchase_orders` | optional `page` | Open purchase orders (`order_processed`) and their items, read-only |
+
+More copy-and-paste prompts are in [docs/install-prompts.md](docs/install-prompts.md).
 
 ### Resources
 
+Clients that browse MCP resources can open these read-only documents:
+
 | URI | Content |
-|---|---|
-| `qasir://docs/index` | Index of sanitized capture docs |
-| `qasir://docs/{name}` | One doc (e.g. `products`, `auth-login`) |
-| `qasir://openapi` | Sanitized OpenAPI 3.1 |
-| `qasir://capabilities` | Server capability summary |
-| `qasir://coverage` | Operation coverage manifest |
-
-### Prompts
-
-- `sales_overview`
-- `trace_stock_movement`
-- `review_purchase_orders`
-
-### Other HTTP routes
-
-| Route | Purpose |
-|---|---|
-| `GET /healthz` | Liveness (no secrets) |
-| `GET/POST /connect…` | Connect Qasir UI (session capture) — see below |
+| --- | --- |
+| `qasir://docs/index` | List of the API documents |
+| `qasir://docs/{document}` | One API document, such as `products` or `reports`, with personal data redacted |
+| `qasir://openapi` | OpenAPI 3.1 description of every operation |
+| `qasir://capabilities` | Tools available to your connection, mutation policy and limits |
+| `qasir://coverage` | Which documented endpoints are implemented or excluded, and why |
 
 ---
 
-## Architecture (short)
+## 3. Tools reference
 
-```
-MCP client  →  Bearer auth  →  /mcp (createMcpHandler, SDK v2)
-                                  ├─ search / execute / execute_mutation
-                                  ├─ DynamicWorkerExecutor (no outbound fetch from sandbox)
-                                  └─ QasirDispatcher (allowlisted hosts + session)
-                                         ↑
-                              /connect or QASIR_* Worker secrets
-```
+### `search`: find operations
 
-**Important compatibility choice:** Cloudflare’s `openApiMcpServer()` / `codeMcpServer()` still produce **SDK v1** servers. This project keeps `/mcp` on **SDK v2** and builds Code Mode tools manually with `DynamicWorkerExecutor`.
-
----
-
-## Local setup
-
-### Prerequisites
-
-- [Bun](https://bun.sh) 1.4+
-- Cloudflare Wrangler (`bunx wrangler`)
-- Qasir owner/staff login for Manuju Jaya (phone/email + **6-digit PIN** — **no OTP accounts**)
-
-### Install & run
-
-```bash
-cd /path/to/manujujaya-mcp
-bun install
-cp .dev.vars.example .dev.vars
-# Edit .dev.vars — at minimum for local MCP clients:
-#   ALLOW_DEV_PSK=true
-#   DEV_PSK=<long random string>
-#   SESSION_ENCRYPTION_KEY=<openssl rand -base64 32>
-#   MERCHANT_SLUG=bengkel-manuju-jaya-621095
-#   DEFAULT_OUTLET_ID=645203
-bun run check-types
-bun test
-bun run dev
-```
-
-Default local base URL:
-
-```text
-http://127.0.0.1:8787
-```
-
-- Health: `http://127.0.0.1:8787/healthz`
-- MCP: `http://127.0.0.1:8787/mcp`
-- Connect UI: `http://127.0.0.1:8787/connect?psk=<DEV_PSK>`
-
-Every MCP request needs:
-
-```http
-Authorization: Bearer <DEV_PSK>
-```
-
-when `ALLOW_DEV_PSK=true`. Production should use real OAuth (currently fail-closed until JWKS is wired).
-
-### Deploy (when you choose to)
-
-```bash
-# Prefer Connect UI after deploy; optional bootstrap secrets:
-wrangler secret put SESSION_ENCRYPTION_KEY
-wrangler secret put CONNECT_NONCE
-# optional bootstrap (or use /connect only):
-wrangler secret put QASIR_API_TOKEN
-wrangler secret put QASIR_CSRF_TOKEN
-wrangler secret put QASIR_COOKIE
-
-# Keep ALLOW_DEV_PSK=false in production wrangler vars
-bunx wrangler deploy
-```
-
-Replace `http://127.0.0.1:8787` in client configs with your `https://<worker>.<account>.workers.dev` URL.
-
----
-
-## Connect Qasir session
-
-Agents never see your PIN. The **host** holds `API_TOKEN` / CSRF / cookies.
-
-1. Open `/connect?psk=<DEV_PSK>` (or use Bearer / `CONNECT_NONCE` gate).
-2. Sign in with **phone/email + PIN only**.
-3. Merchant is **auto-fixed** to Manuju Jaya (`MERCHANT_SLUG`). No merchant picker.
-4. If Qasir asks for **outlet**, pick one in the UI.
-5. If Qasir would require **OTP**, Connect **rejects** (410 on OTP routes) — use a non-OTP account.
-6. If `API_TOKEN` cannot be scraped after `tokenWeb`, use **paste fallback** (DevTools → token + CSRF + Cookie).
-7. Confirm `GET /connect/status` → `connected: true` (no secrets in the JSON).
-
-Details: [`docs/connect-qasir.md`](docs/connect-qasir.md).
-
-Optional live E2E (uses `.dev.vars` `QASIR_E2E_*`, never prints secrets):
-
-```bash
-bun run scripts/e2e-live-login-products.ts
-```
-
----
-
-## How to use the MCP tools
-
-### Progressive discovery pattern
-
-1. **`search`** — find `operationId`s (products, reports, purchases, …).
-2. **`execute`** — call only those ids via `codemode.request`.
-3. Keep returned fields small (map/filter/aggregate in the sandbox).
-
-### Example: find product operations
-
-Ask the agent (or call `search` with code like):
+Input: `{ "code": "<async arrow function>" }`. The function can only call `codemode.spec()`, which returns `catalog` (one entry per operation, with `operationId`, `title`, `safety`, `tags`, `inputKeys` and more), `openapi` and `examples`. There is no network access.
 
 ```js
 async () => {
   const { catalog } = await codemode.spec();
   return catalog
-    .filter((o) => o.tags?.includes("products") || /product/i.test(o.operationId))
-    .slice(0, 15)
-    .map(({ operationId, method, pathTemplate, title }) => ({
-      operationId, method, pathTemplate, title,
-    }));
-};
+    .filter((o) => o.tags.includes("reports"))
+    .map((o) => ({ id: o.operationId, inputs: o.inputKeys }));
+}
 ```
 
-### Example: list products
+### `execute`: read live data
+
+Input: `{ "code": "<async arrow function>" }`. The function can also call `codemode.request({ operationId, path, query })`, which returns `{ operationId, status, data }`.
 
 ```js
 async () => {
   const r = await codemode.request({
-    operationId: "products.list",
-    query: { page: 1, count: 5 },
+    operationId: "reports.summaries.sales",
+    query: { start_date: "2026-09-01", end_date: "2026-09-07", outlet_ids: "<outlet id>" },
   });
-  return r;
-};
+  return r.data;
+}
 ```
 
-### Rules for model-written code
+What the server enforces:
 
-- **Do** use `operationId` from the catalog.
-- **Do not** pass absolute URLs, `Authorization`, cookies, CSRF, or `Origin`.
-- **Do not** call `fetch()` from the sandbox (blocked).
-- Mutations stay disabled unless you explicitly enable + approve them.
+- Only registered read operations can be called. The method, URL, headers and cookies cannot be chosen by the script.
+- Inputs are checked against each operation's schema before anything is sent to Qasir. Page sizes (`count`, `limit`, `per_page`) must be between 1 and 100.
+- `fetch()` and other network access fail inside the sandbox.
 
-Useful `operationId` examples (see coverage for the full list): `products.list`, `users.list`, `suppliers.listHtml`, report/order history ops under `docs/architecture/coverage.md`.
+| Limit per `search` or `execute` call | Value |
+| --- | --- |
+| `codemode.request()` calls | 50 |
+| Requests running at the same time | 4 (the rest wait) |
+| Total data returned to the script | about 5 MB |
+| Time for the whole script | 30 seconds |
+| Size of the answer sent back to the chat | about 24,000 characters (truncated beyond that) |
+
+### `execute_mutation`: approved changes (off in production)
+
+This tool only appears when the operator sets `ENABLE_MUTATIONS=true` **and** the connection was approved with `qasir:write`. It does not run code. It performs one change at a time, and each change needs the owner's approval in a browser:
+
+1. The assistant calls it with `{ operationId, path, query, body }`. The server stores a pending approval and returns an `approvalUrl` with a preview.
+2. The owner opens the link, reviews the operation and its arguments, and chooses **Approve once** or **Reject**.
+3. The assistant calls it again with exactly the same arguments plus `approvalId`. The change runs once.
+
+An approval expires after 10 minutes, works only once and only for exactly those arguments. The operations that can change data are `purchases.confirmation`, `purchases.cancel` and `products.inventories.bulk`. See [docs/mcp-tools.md](docs/mcp-tools.md) for details.
+
+### Error codes you may see
+
+| Code | Meaning | What to do |
+| --- | --- | --- |
+| `QASIR_AUTH_EXPIRED` | The Qasir session is missing or has expired | The owner reconnects at `/connect` ([step 1](#step-1-owner-one-time-connect-the-qasir-account)) |
+| `INVALID_INPUT` | Wrong or missing inputs, page size over 100, or an error in the script | Let the assistant correct its inputs; it can check them with `search` |
+| `RESULT_LIMIT_EXCEEDED` | Too many requests or too much data in one script | Ask for a smaller date range or a summary |
+| `UPSTREAM_TIMEOUT` | The script or a Qasir request took too long | Ask for less data at once |
+| `FORBIDDEN` | Qasir refused this data for the connected account, or the connection lacks a scope | Check the Qasir account's permissions |
+| `QASIR_RATE_LIMITED` | Qasir is throttling requests | Wait a minute and try again |
+| `UPSTREAM_ERROR` | Qasir returned an error or an unexpected page | Try again later; the dashboard API may have changed |
+| `MUTATION_DISABLED` | A change was attempted while writes are off | Expected in production |
+| `APPROVAL_REQUIRED` | A change needs owner approval | Open the `approvalUrl` and approve |
+
+The full table is in [docs/mcp-tools.md](docs/mcp-tools.md#error-codes).
 
 ---
 
-## Install on every agent
+## 4. Keeping it working (owner tasks)
 
-This server is **remote HTTP (Streamable HTTP)** at `/mcp`, **not** a local stdio binary. Every client needs:
+| Task | How |
+| --- | --- |
+| Reconnect Qasir after `QASIR_AUTH_EXPIRED` | Open `/connect`, sign in with the owner password, then the Qasir phone/email and PIN |
+| Check the Qasir session | `/connect/status` while signed in as owner |
+| Disconnect Qasir | **Disconnect** on the `/connect` page |
+| Sign out of the owner pages on this browser | **Sign out** on the `/connect` page |
+| Change the owner password | `wrangler secret put OWNER_PASSWORD`. This signs the owner out of the browser pages. Connected clients keep working until their tokens expire or are revoked |
+| Revoke a client's access | See [docs/architecture/operations.md](docs/architecture/operations.md) |
+| Allow AI clients older than protocol 2026-07-28 | Set `MCP_LEGACY_MODE` to `stateless` in `wrangler.jsonc` and redeploy |
+| Enable approved changes | See [docs/architecture/operations.md](docs/architecture/operations.md) |
 
-1. Base URL ending in `/mcp`
-2. `Authorization: Bearer <token>` (`DEV_PSK` locally)
+Changing `SESSION_ENCRYPTION_KEY` also makes the stored Qasir session unreadable, so reconnect afterwards.
 
-Below, substitute:
+---
 
-- `MCP_URL` → e.g. `http://127.0.0.1:8787/mcp` or `https://manujujaya-mcp.<account>.workers.dev/mcp`
-- `MCP_TOKEN` → your `DEV_PSK` (local) or production bearer
+## 5. Troubleshooting
 
-### Claude Code (CLI)
+| Problem | Likely cause and fix |
+| --- | --- |
+| The client says the server needs authentication, or keeps asking to sign in | Finish [step 3](#step-3-approve-the-connection) in the browser that opened. If no browser opened, use your client's authenticate or login action |
+| The consent page says "Incorrect owner password" | Check the password. After 10 failed attempts from the same network, wait 15 minutes |
+| "Session expired — review and approve again" on the consent page | The page was open too long. Start the connection again from the client |
+| Every tool call returns `QASIR_AUTH_EXPIRED` | The Qasir session expired. Reconnect at `/connect` ([step 1](#step-1-owner-one-time-connect-the-qasir-account)) |
+| `/connect` shows "OTP accounts are not supported" | Use a Qasir account that signs in with phone/email + PIN only |
+| The client fails to connect with error `-32022` or "Unsupported protocol version" | The client uses an older MCP protocol. The owner sets `MCP_LEGACY_MODE=stateless` and redeploys |
+| Answers are cut off or return `RESULT_LIMIT_EXCEEDED` | Ask for a shorter date range, fewer rows or a summary |
+| The tools are missing in a Claude chat | Turn the connector on in the chat's tools menu |
+
+More cases, including logs and `wrangler tail`, are in [docs/architecture/operations.md](docs/architecture/operations.md).
+
+---
+
+## 6. How it works
+
+Qasir has no official public API. This server uses the same endpoints that the Qasir dashboard calls in the browser; they were captured and documented in [`docs/`](docs/).
+
+```
+ AI client (Claude, Cursor, ...)                      Owner's browser
+        │  OAuth access token                           │  owner cookie + CSRF token
+        ▼                                               ▼
+┌──────────────────────── Cloudflare Worker: mcp.manujujaya.com ────────────────────────┐
+│ OAuth provider: /.well-known/*, /oauth/register, /oauth/token                          │
+│   verifies token and audience ─┐              /authorize   consent + owner password    │
+│                                ▼              /login /logout                           │
+│ /mcp  MCP handler (SDK v2, stateless)         /connect*    Qasir sign-in               │
+│   tools: search · execute · [execute_mutation]  /approvals/:id  change approval        │
+│   resources · prompts                                                                  │
+│        │ assistant's JavaScript                                                        │
+│        ▼                                                                               │
+│ Sandbox isolate (Worker Loader): no internet, no bindings, no credentials              │
+│        │ codemode.request({ operationId, path, query })                                │
+│        ▼                                                                               │
+│ Host: limits → input validation → dispatcher (fixed hosts, adds Qasir auth headers)    │
+│        │                  ▲                                                            │
+│        │        Qasir session (Durable Object, AES-GCM encrypted)                      │
+│        │        OAuth clients, grants and hashed tokens (KV)                           │
+└────────┼───────────────────────────────────────────────────────────────────────────────┘
+         ▼
+  pos / order / payment .qasir.id  and  bengkel-manuju-jaya-621095.qasir.id
+```
+
+- **Protocol:** MCP `2026-07-28` over Streamable HTTP, stateless. Clients discover the server with `server/discover`.
+- **Two separate logins:** AI clients sign in to this server with OAuth. This server signs in to Qasir with the dashboard session captured at `/connect`. The two never mix, and Qasir credentials are never sent to the AI client.
+- **Stack:** `@modelcontextprotocol/server` 2.0.0, `agents` 0.23.0, `@cloudflare/codemode` 0.5.2, `@cloudflare/workers-oauth-provider` 0.10.3, Wrangler 4.
+
+Module-by-module detail and the compatibility table: [docs/architecture/overview.md](docs/architecture/overview.md).
+
+---
+
+## 7. Security and privacy
+
+- **Only the owner can grant access.** Every connection is approved in a browser with the owner password on a CSRF-protected page. Failed password attempts are limited per network. Access tokens last 1 hour, refresh tokens 180 days, and tokens only work for `https://mcp.manujujaya.com/mcp`.
+- **Read-only by default.** `execute` refuses every operation that changes data. The change tool does not exist in production, and even when enabled, the owner approves each change individually.
+- **The assistant's code is sandboxed.** It runs in a separate isolate with no internet access, no bindings and strict limits. It can only call registered operations by name.
+- **Qasir credentials stay on the server.** The Qasir token, CSRF token and cookies are stored encrypted and never appear in tool results, resources or logs. The PIN is never stored.
+- **Fixed destinations.** The server only talks to Qasir's API hosts and the merchant's own dashboard host.
+- **Your data goes to your AI provider.** Tool results can include real customer names, phone numbers and sales data, and are processed by whichever AI client and model you connect.
+
+Full security model and residual risks: [docs/architecture/security.md](docs/architecture/security.md).
+
+---
+
+## 8. For developers
+
+### Requirements
+
+- [Bun](https://bun.sh) 1.x
+- A Cloudflare account with Workers, Durable Objects, KV and the Worker Loader binding (production uses the **bisa.digital** account)
+
+### Run locally
 
 ```bash
-claude mcp add --transport http manujujaya \
-  --header "Authorization: Bearer MCP_TOKEN" \
-  MCP_URL
+bun install
+cp .dev.vars.example .dev.vars   # set OWNER_PASSWORD, SESSION_ENCRYPTION_KEY, DEV_PSK
+bun run dev                      # http://localhost:8787
+bun run e2e                      # OAuth + MCP end-to-end checks against localhost
 ```
 
-Project-shared (commit `.mcp.json`, team must approve):
+`bun run e2e -- --connect --live` also signs in to Qasir through `/connect` (using `QASIR_E2E_USERNAME` and `QASIR_E2E_PIN` from `.dev.vars`) and makes read-only calls. `DEV_PSK` is a bearer key for local scripts and only works on `localhost`.
+
+### Checks
 
 ```bash
-claude mcp add --scope project --transport http manujujaya \
-  --header "Authorization: Bearer ${MANUJUJAYA_MCP_TOKEN}" \
-  MCP_URL
+bun run check-types        # TypeScript for the Worker and scripts
+bun run test               # vitest (use this, not `bun test`)
+bun run coverage:validate  # every documented endpoint has a coverage entry
+bun run openapi:validate   # generated OpenAPI matches the registry
+bun run build              # wrangler deploy --dry-run
 ```
 
-Or create **`.mcp.json`** in the project root:
-
-```json
-{
-  "mcpServers": {
-    "manujujaya": {
-      "type": "http",
-      "url": "http://127.0.0.1:8787/mcp",
-      "headers": {
-        "Authorization": "Bearer ${MANUJUJAYA_MCP_TOKEN}"
-      }
-    }
-  }
-}
-```
-
-Check: `claude mcp list` → `/mcp` inside Claude Code.
-
-Docs: [Claude Code MCP](https://code.claude.com/docs/en/mcp).
-
-### Claude Desktop
-
-Edit:
-
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "manujujaya": {
-      "type": "http",
-      "url": "http://127.0.0.1:8787/mcp",
-      "headers": {
-        "Authorization": "Bearer MCP_TOKEN"
-      }
-    }
-  }
-}
-```
-
-Fully quit and reopen Claude Desktop. If your Desktop build only supports stdio MCP, use Claude Code / Cursor / Codex for this HTTP server, or put a tiny local stdio proxy in front (not bundled here).
-
-### Codex CLI + ChatGPT desktop / IDE (shared Codex host)
-
-ChatGPT **desktop**, Codex CLI, and the Codex IDE extension share `~/.codex/config.toml`.
-
-CLI:
+### Deploy
 
 ```bash
-codex mcp add manujujaya \
-  --url MCP_URL \
-  --env MANUJUJAYA_MCP_TOKEN=MCP_TOKEN
+bunx wrangler deploy --secrets-file .secrets.production   # first deploy, or when secrets change
+bunx wrangler deploy                                      # code-only updates
+OWNER_PASSWORD=... bun run e2e -- --base https://mcp.manujujaya.com --live
 ```
 
-Then ensure bearer env wiring in `~/.codex/config.toml`:
+Production secrets are `OWNER_PASSWORD` (at least 16 characters) and `SESSION_ENCRYPTION_KEY` (`openssl rand -base64 32`). The Worker is served only on the custom domain `mcp.manujujaya.com`; `workers.dev` is disabled. Full setup, secret rotation and configuration: [docs/architecture/setup.md](docs/architecture/setup.md).
 
-```toml
-[mcp_servers.manujujaya]
-url = "http://127.0.0.1:8787/mcp"
-bearer_token_env_var = "MANUJUJAYA_MCP_TOKEN"
-# or:
-# http_headers = { "Authorization" = "Bearer MCP_TOKEN" }
-```
+### Project layout
 
-```bash
-export MANUJUJAYA_MCP_TOKEN='MCP_TOKEN'
-codex mcp list
-```
-
-In the ChatGPT desktop app: **Settings → MCP servers → Add server → Streamable HTTP** → URL + bearer.
-
-### ChatGPT web (chatgpt.com)
-
-ChatGPT **web** does **not** read `~/.codex/config.toml`. Remote MCP there is via **Plugins / Connectors** (admin-controlled on Team/Enterprise). You generally need a **public HTTPS** Worker URL and whatever connector onboarding ChatGPT requires — local `127.0.0.1` will not work from ChatGPT cloud.
-
-Use ChatGPT **desktop** (Codex host) for local `8787`, or deploy the Worker first for web plugins.
-
-Docs: [ChatGPT Learn — MCP](https://learn.chatgpt.com/docs/extend/mcp).
-
-### Cursor
-
-Cursor Settings → **MCP** → Add server (or project `.cursor/mcp.json` / Cursor MCP UI):
-
-```json
-{
-  "mcpServers": {
-    "manujujaya": {
-      "url": "http://127.0.0.1:8787/mcp",
-      "headers": {
-        "Authorization": "Bearer MCP_TOKEN"
-      }
-    }
-  }
-}
-```
-
-(Exact UI labels vary by Cursor version; transport must be HTTP/Streamable HTTP, not stdio.)
-
-### VS Code (GitHub Copilot MCP)
-
-Use root key **`servers`** (not `mcpServers`) in `.vscode/mcp.json`:
-
-```json
-{
-  "servers": {
-    "manujujaya": {
-      "type": "http",
-      "url": "http://127.0.0.1:8787/mcp",
-      "headers": {
-        "Authorization": "Bearer MCP_TOKEN"
-      }
-    }
-  }
-}
-```
-
-### Windsurf / Cline / Continue / other MCP clients
-
-Same idea as Claude Desktop JSON (`mcpServers` + `url` + `headers`), or their HTTP MCP dialog. Always:
-
-1. URL = `…/mcp`
-2. Header `Authorization: Bearer …`
-3. Prefer Streamable HTTP / HTTP over deprecated SSE-only unless the client forces SSE.
-
-### Grok / other assistants
-
-Any client that can call a remote MCP Streamable HTTP endpoint with a custom Authorization header can use this server the same way. If the client only supports stdio, you need a local bridge (out of scope of this repo).
+| Path | Contents |
+| --- | --- |
+| `src/index.ts` | Worker entry: OAuth provider, `/mcp` handler, browser routes |
+| `src/auth/` | Owner password, cookies, CSRF, OAuth consent page |
+| `src/mcp/` | Tools, resources, prompts, `execute_mutation` |
+| `src/codemode/` | Sandbox runner, limits, error mapping, output formatting |
+| `src/dispatcher/`, `src/registry/` | Operation registry, input validation, OpenAPI, coverage, upstream requests |
+| `src/connect/`, `src/session/` | Qasir sign-in flow and encrypted session storage |
+| `src/approvals/` | Change approvals (Durable Object and approval page) |
+| `src/html/` | Parsers for the HTML-only dashboard pages |
+| `docs/` | Captured Qasir API documents and project documentation |
+| `scripts/` | End-to-end tests, docs bundling and validators |
+| `tests/` | Unit, security, protocol and eval tests |
 
 ---
 
-## Copyable install prompts
+## 9. Documentation index
 
-Paste one of these into an agent chat (fill `MCP_URL` and `MCP_TOKEN` first). The agent should configure itself or give you exact file edits.
-
-### Universal (any coding agent)
-
-````text
-Install the remote MCP server "manujujaya" for me.
-
-- Transport: Streamable HTTP (MCP)
-- URL: MCP_URL
-- Auth header: Authorization: Bearer MCP_TOKEN
-- Server name: manujujaya
-
-This wraps unofficial Qasir dashboard APIs for Bengkel Manuju Jaya (merchant slug bengkel-manuju-jaya-621095). Tools: search, execute, execute_mutation (mutations off by default). After connecting, call search to list product-related operationIds, then execute products.list with page=1 count=5. Do not ask me for the Qasir PIN; session is provisioned via the Worker /connect UI or host secrets.
-````
-
-### Claude Code
-
-````text
-Add this remote MCP server to Claude Code (user scope):
-
-claude mcp add --transport http manujujaya \
-  --header "Authorization: Bearer MCP_TOKEN" \
-  MCP_URL
-
-Then run `claude mcp list` and `/mcp` to confirm Connected. Afterwards, use tool `search` to find products operations and `execute` with operationId products.list (page 1, count 5).
-````
-
-### Codex / ChatGPT desktop
-
-````text
-Configure Codex MCP for manujujaya:
-
-1) export MANUJUJAYA_MCP_TOKEN='MCP_TOKEN'
-2) codex mcp add manujujaya --url MCP_URL
-3) In ~/.codex/config.toml set:
-
-[mcp_servers.manujujaya]
-url = "MCP_URL"
-bearer_token_env_var = "MANUJUJAYA_MCP_TOKEN"
-
-4) Restart ChatGPT desktop / Codex if needed, then `/mcp` and verify manujujaya is enabled.
-````
-
-### Claude Desktop
-
-````text
-Edit claude_desktop_config.json (macOS: ~/Library/Application Support/Claude/claude_desktop_config.json) and merge:
-
-{
-  "mcpServers": {
-    "manujujaya": {
-      "type": "http",
-      "url": "MCP_URL",
-      "headers": {
-        "Authorization": "Bearer MCP_TOKEN"
-      }
-    }
-  }
-}
-
-Fully quit and reopen Claude Desktop, then confirm the manujujaya MCP tools appear.
-````
-
-### Cursor
-
-````text
-Add an MCP server named manujujaya in Cursor:
-
-URL: MCP_URL
-Headers: Authorization: Bearer MCP_TOKEN
-Transport: HTTP / Streamable HTTP
-
-Reload MCP servers, then list tools (search, execute, execute_mutation).
-````
-
-### VS Code Copilot
-
-````text
-Create or update .vscode/mcp.json with root key "servers" (not mcpServers):
-
-{
-  "servers": {
-    "manujujaya": {
-      "type": "http",
-      "url": "MCP_URL",
-      "headers": {
-        "Authorization": "Bearer MCP_TOKEN"
-      }
-    }
-  }
-}
-
-Reload the window and confirm Copilot can see the manujujaya tools.
-````
-
-### One-liner local defaults (dev)
-
-````text
-MCP_URL=http://127.0.0.1:8787/mcp
-MCP_TOKEN=<paste DEV_PSK from .dev.vars>
-````
-
----
-
-## Verification & E2E
-
-```bash
-bun run check-types
-bun test
-bun run coverage:validate
-bun run openapi:validate
-bun run deploy:dry-run   # does not publish
-bun run scripts/e2e-live-login-products.ts   # needs QASIR_E2E_* in .dev.vars
-```
-
----
-
-## Security notes
-
-- Never commit `.dev.vars`, PINs, cookies, or `API_TOKEN`.
-- Do not put Qasir PIN in MCP tool args or agent chat if avoidable — use `/connect`.
-- Sandbox cannot reach the network except through allowlisted dispatcher.
-- Mutations require explicit enablement + approval DO.
-- Production OAuth is fail-closed until issuer/JWKS verification is wired; local uses `ALLOW_DEV_PSK`.
-
----
-
-## Troubleshooting
-
-| Symptom | Check |
-|---|---|
-| `401` on `/mcp` | Bearer missing/wrong; `ALLOW_DEV_PSK` and `DEV_PSK` |
-| `QASIR_AUTH_EXPIRED` | Re-run `/connect` or refresh session secrets |
-| OTP error on Connect | Account requires OTP — use phone/email+PIN-only account |
-| Merchant error | Login must include configured `MERCHANT_SLUG` store |
-| Client connects but no tools | Wrong URL (must end with `/mcp`); restart client; confirm protocol HTTP not stdio-only |
-| ChatGPT web can’t reach localhost | Deploy Worker to HTTPS or use ChatGPT desktop/Codex |
-| `products.list` huge | Use small `count`; filter in sandbox before return |
-
----
-
-## Further docs
-
-- [`docs/mcp-tools.md`](docs/mcp-tools.md) — tool/resource/prompt reference
-- [`docs/connect-qasir.md`](docs/connect-qasir.md) — Connect UI details
-- [`docs/architecture/overview.md`](docs/architecture/overview.md) — architecture
-- [`docs/architecture/setup.md`](docs/architecture/setup.md) — ops setup
-- [`docs/architecture/coverage.md`](docs/architecture/coverage.md) — API coverage
-- Capture notes: `docs/products.md`, `docs/auth-login.md`, …
+| Topic | Document |
+| --- | --- |
+| Installing in more clients, copyable prompts | [docs/install-prompts.md](docs/install-prompts.md) |
+| Tools, resources, prompts, error codes, changes | [docs/mcp-tools.md](docs/mcp-tools.md) |
+| Connecting the Qasir session | [docs/connect-qasir.md](docs/connect-qasir.md) |
+| Local development, deploy, OAuth, secrets | [docs/architecture/setup.md](docs/architecture/setup.md) |
+| Operations runbook and troubleshooting | [docs/architecture/operations.md](docs/architecture/operations.md) |
+| Architecture and compatibility | [docs/architecture/overview.md](docs/architecture/overview.md) |
+| Security model | [docs/architecture/security.md](docs/architecture/security.md) |
+| API coverage (generated) | [docs/architecture/coverage.md](docs/architecture/coverage.md) |
+| Captured Qasir API documents | `docs/products.md`, `docs/reports.md`, `docs/purchases.md` and 10 more |
 
 ## License
 
-Private — Manuju Jaya / Bahrul.
+Private.

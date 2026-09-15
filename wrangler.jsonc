@@ -1,10 +1,23 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "manujujaya-mcp",
+  // bisa.digital account
+  "account_id": "79831d843efec46bd23d872d5f8052cb",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-15",
-  "compatibility_flags": ["nodejs_compat"],
+  // global_fetch_strictly_public: SSRF protection for OAuth CIMD client metadata fetches.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // Serve only on the custom domain so the OAuth resource/audience is stable.
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "mcp.manujujaya.com", "custom_domain": true }],
+  // Local dev: keep request.url on localhost (routes would otherwise rewrite it to the custom domain).
+  "dev": { "ip": "127.0.0.1", "port": 8787, "local_protocol": "http", "upstream_protocol": "http", "host": "localhost:8787" },
   "worker_loaders": [{ "binding": "LOADER" }],
+  "kv_namespaces": [
+    // OAuth clients, grants and hashed tokens (@cloudflare/workers-oauth-provider)
+    { "binding": "OAUTH_KV", "id": "ce0842b661af47b2b0cebd2f2de34b05" }
+  ],
   "durable_objects": {
     "bindings": [
       { "name": "MUTATION_APPROVALS", "class_name": "MutationApprovalsDO" },
@@ -14,20 +27,24 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["MutationApprovalsDO"]
-    },
-    {
-      "tag": "v2",
-      "new_classes": ["QasirSessionsDO"]
+      "new_sqlite_classes": ["MutationApprovalsDO", "QasirSessionsDO"]
     }
   ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
   "vars": {
+    "PUBLIC_BASE_URL": "https://mcp.manujujaya.com",
     "MERCHANT_SLUG": "bengkel-manuju-jaya-621095",
     "DEFAULT_OUTLET_ID": "645203",
     "ENABLE_MUTATIONS": "false",
     "ALLOW_DEV_PSK": "false",
-    "REQUIRE_SESSION_ENCRYPTION": "false",
+    "REQUIRE_SESSION_ENCRYPTION": "true",
+    "MCP_LEGACY_MODE": "reject",
     "MCP_SERVER_NAME": "manujujaya-mcp",
-    "MCP_SERVER_VERSION": "0.1.0"
+    "MCP_SERVER_VERSION": "0.2.0"
   }
+  // Secrets (wrangler secret put): OWNER_PASSWORD, SESSION_ENCRYPTION_KEY
+  // Optional bootstrap secrets: QASIR_API_TOKEN, QASIR_CSRF_TOKEN, QASIR_COOKIE
 }

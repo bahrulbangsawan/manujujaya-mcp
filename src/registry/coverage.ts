@@ -1,267 +1,63 @@
+import { EXCLUSIONS, SESSION_ONLY } from "./exclusions";
 import { OPERATIONS } from "./operations";
-import type { CoverageEntry } from "./types";
+import type { ApiOperation, CoverageEntry } from "./types";
 
-/** Explicit exclusions for documented paths that are not executable. */
-const EXCLUSIONS: CoverageEntry[] = [
-  {
-    sourceDocument: "reports.md",
-    method: "GET",
-    path: "/api/v5/reports/sales/total",
-    operationId: null,
-    auth: "bearer",
-    safety: "read",
-    implModule: null,
-    testFile: "tests/unit/coverage.test.ts",
-    status: "excluded",
-    exclusionReason: "Failed probe: HTTP 500 with status=saved on crawl",
-  },
-  {
-    sourceDocument: "suppliers.md",
-    method: "GET",
-    path: "/api/v5/suppliers",
-    operationId: null,
-    auth: "bearer",
-    safety: "read",
-    implModule: null,
-    testFile: "tests/unit/coverage.test.ts",
-    status: "excluded",
-    exclusionReason: "Failed probe: 400 BAD_REQUEST for all query sets tried",
-  },
-  {
-    sourceDocument: "suppliers.md",
-    method: "GET",
-    path: "/api/v5/supplier",
-    operationId: null,
-    auth: "bearer",
-    safety: "read",
-    implModule: null,
-    testFile: "tests/unit/coverage.test.ts",
-    status: "excluded",
-    exclusionReason: "Failed probe: 404",
-  },
-  {
-    sourceDocument: "suppliers.md",
-    method: "GET",
-    path: "/ajax/suppliers/get",
-    operationId: null,
-    auth: "cookie-csrf",
-    safety: "read",
-    implModule: null,
-    testFile: "tests/unit/coverage.test.ts",
-    status: "excluded",
-    exclusionReason: "Failed probe: 405",
-  },
-  {
-    sourceDocument: "stock-adjustment.md",
-    method: "GET",
-    path: "/api/v5/inventories/adjustments",
-    operationId: null,
-    auth: "bearer",
-    safety: "read",
-    implModule: null,
-    testFile: "tests/unit/coverage.test.ts",
-    status: "excluded",
-    exclusionReason: "Failed probe: 500 wrapped 405 Method Not Allowed",
-  },
-  {
-    sourceDocument: "products.md",
-    method: "GET",
-    path: "/api/v5/inventories",
-    operationId: null,
-    auth: "bearer",
-    safety: "read",
-    implModule: null,
-    testFile: "tests/unit/coverage.test.ts",
-    status: "excluded",
-    exclusionReason:
-      "count ignored (~1.5MB); unsafe as paginated catalog — use products.list / stock-turnover",
-  },
-  {
-    sourceDocument: "auth-login.md",
-    method: "POST",
-    path: "/api/auth/login",
-    operationId: null,
-    auth: "www-csrf",
-    safety: "write",
-    implModule: "src/connect/login-flow.ts",
-    testFile: "tests/unit/connect.test.ts",
-    status: "session-only",
-    exclusionReason:
-      "Connect UI / host-only session bootstrap; PIN never accepted from model.",
-  },
-  {
-    sourceDocument: "auth-login.md",
-    method: "POST",
-    path: "/api/auth/device-language",
-    operationId: null,
-    auth: "www-csrf",
-    safety: "write",
-    implModule: "src/connect/login-flow.ts",
-    testFile: "tests/unit/connect.test.ts",
-    status: "session-only",
-    exclusionReason: "Auth bootstrap helper; Connect only — not exposed via Code Mode",
-  },
-  {
-    sourceDocument: "auth-login.md",
-    method: "POST",
-    path: "/api/auth/outlet-select",
-    operationId: null,
-    auth: "www-csrf",
-    safety: "write",
-    implModule: "src/connect/login-continue.ts",
-    testFile: "tests/unit/connect.test.ts",
-    status: "session-only",
-    exclusionReason: "Connect multi-step auth only; not exposed via Code Mode",
-  },
+/**
+ * Registry/OpenAPI contract test that runs a per-operation block for every
+ * operationId (schema, host binding, OpenAPI entry, coverage status).
+ */
+export const OPERATION_CONTRACT_TEST = "tests/unit/coverage.test.ts";
 
-  {
-    sourceDocument: "auth-login.md",
-    method: "POST",
-    path: "/api/auth/login/otp-verify",
-    operationId: null,
-    auth: "www-csrf",
-    safety: "write",
-    implModule: "src/connect/login-continue.ts",
-    testFile: "tests/unit/connect.test.ts",
-    status: "session-only",
-    exclusionReason: "Connect verify_otp step only; not exposed via Code Mode",
+/** HTML adapter module + fixture test per html operation. */
+const HTML_ADAPTERS: Record<string, { implModule: string; testFile: string }> = {
+  "suppliers.listHtml": {
+    implModule: "src/html/suppliers.ts",
+    testFile: "tests/unit/html-adapters.test.ts",
   },
-  {
-    sourceDocument: "auth-login.md",
-    method: "POST",
-    path: "/api/auth/login/resend-otp",
-    operationId: null,
-    auth: "www-csrf",
-    safety: "write",
-    implModule: "src/connect/login-continue.ts",
-    testFile: "tests/unit/connect.test.ts",
-    status: "session-only",
-    exclusionReason: "Connect resend-otp step only; not exposed via Code Mode",
+  "stockAdjustment.historyHtml": {
+    implModule: "src/html/stock-adjustment.ts",
+    testFile: "tests/unit/html-adapters.test.ts",
   },
-  {
-    sourceDocument: "auth-login.md",
-    method: "POST",
-    path: "/api/auth/reset-pin",
-    operationId: null,
-    auth: "www-csrf",
-    safety: "write",
-    implModule: null,
-    testFile: null,
-    status: "excluded",
-    exclusionReason: "Forgot-PIN flow out of Connect scope; use Qasir UI",
-  },
-  {
-    sourceDocument: "auth-login.md",
-    method: "POST",
-    path: "/api/auth/otp-verify",
-    operationId: null,
-    auth: "www-csrf",
-    safety: "write",
-    implModule: null,
-    testFile: null,
-    status: "excluded",
-    exclusionReason: "Forgot-PIN OTP (authkey); not login OTP verify",
-  },
-  {
-    sourceDocument: "auth-login.md",
-    method: "POST",
-    path: "/api/auth/reset-pin/create",
-    operationId: null,
-    auth: "www-csrf",
-    safety: "write",
-    implModule: null,
-    testFile: null,
-    status: "excluded",
-    exclusionReason: "Forgot-PIN create; out of Connect scope",
-  },
-  {
-    sourceDocument: "routes.md",
-    method: "POST",
-    path: "/ajax/category/create",
-    operationId: null,
-    auth: "cookie-csrf",
-    safety: "write",
-    implModule: null,
-    testFile: null,
-    status: "excluded",
-    exclusionReason: "Documented-not-executed mutation; deferred beyond initial gate set",
-  },
-  {
-    sourceDocument: "routes.md",
-    method: "POST",
-    path: "/ajax/brand/create",
-    operationId: null,
-    auth: "cookie-csrf",
-    safety: "write",
-    implModule: null,
-    testFile: null,
-    status: "excluded",
-    exclusionReason: "Documented-not-executed mutation; deferred beyond initial gate set",
-  },
-  {
-    sourceDocument: "routes.md",
-    method: "GET",
-    path: "/ajax/payment/pointofinterest",
-    operationId: null,
-    auth: "cookie-csrf",
-    safety: "read",
-    implModule: null,
-    testFile: null,
-    status: "excluded",
-    exclusionReason: "Dashboard chrome XHR; not a data API for MCP",
-  },
-  {
-    sourceDocument: "routes.md",
-    method: "GET",
-    path: "/ajax/prosubs/sku1and6",
-    operationId: null,
-    auth: "cookie-csrf",
-    safety: "read",
-    implModule: null,
-    testFile: null,
-    status: "excluded",
-    exclusionReason: "Dashboard chrome XHR; not a data API for MCP",
-  },
-  {
-    sourceDocument: "routes.md",
-    method: "GET",
-    path: "/api/v5/prosubs/users",
-    operationId: null,
-    auth: "bearer",
-    safety: "read",
-    implModule: null,
-    testFile: null,
-    status: "excluded",
-    exclusionReason: "Dashboard chrome XHR; not a data API for MCP",
-  },
-];
+};
 
-export function buildCoverageManifest(): CoverageEntry[] {
-  const fromOps: CoverageEntry[] = OPERATIONS.map((o) => ({
+const DISPATCHER_MODULE = "src/dispatcher/qasir-dispatcher.ts";
+
+function operationEntry(o: ApiOperation): CoverageEntry {
+  const html = o.responseKind === "html" ? HTML_ADAPTERS[o.operationId] : undefined;
+  if (o.responseKind === "html" && !html) {
+    throw new Error(`HTML operation ${o.operationId} has no adapter mapping`);
+  }
+  return {
     sourceDocument: o.sourceDocument,
     method: o.method,
+    host: o.host,
     path: o.pathTemplate,
     operationId: o.operationId,
     auth: o.authProfile,
     safety: o.safety,
-    implModule:
-      o.responseKind === "html"
-        ? "src/html/"
-        : o.safety === "read"
-          ? "src/dispatcher/qasir-dispatcher.ts"
-          : "src/dispatcher/qasir-dispatcher.ts",
-    testFile:
-      o.responseKind === "html"
-        ? "tests/unit/html-adapters.test.ts"
-        : "tests/unit/registry.test.ts",
+    implModule: html?.implModule ?? DISPATCHER_MODULE,
+    testFile: html?.testFile ?? OPERATION_CONTRACT_TEST,
     status:
-      o.safety === "read"
-        ? o.responseKind === "html"
+      o.safety !== "read"
+        ? "mutation-gated"
+        : html
           ? "html-adapter"
-          : "implemented"
-        : "mutation-gated",
-  }));
-  return [...fromOps, ...EXCLUSIONS];
+          : "implemented",
+  };
+}
+
+/** Machine-readable coverage: every documented method+host+path appears exactly once. */
+export function buildCoverageManifest(): CoverageEntry[] {
+  return [
+    ...OPERATIONS.filter((o) => o.exposed).map(operationEntry),
+    ...SESSION_ONLY,
+    ...EXCLUSIONS,
+  ];
+}
+
+/** Stable manifest key; template parameter names are ignored so `{id}` == `{purchase_id}`. */
+export function coverageKey(e: { method: string; host: string; path: string }): string {
+  return `${e.method.toUpperCase()} ${e.host} ${e.path.replace(/\{[^}]*\}/g, "{}")}`;
 }
 
 export function coverageSummary(): {
