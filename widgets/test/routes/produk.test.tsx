@@ -1,16 +1,11 @@
 // @vitest-environment happy-dom
-import { QueryClientProvider } from "@tanstack/react-query";
-import { RouterProvider } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ToolInput, ToolName, ViewName } from "../../../src/widgets/contract";
-import { createWidgetQueryClient } from "../../src/app/queryClient";
-import { createWidgetRouter } from "../../src/app/router";
-import { searchFromToolArgs, toolArgsFromSearch } from "../../src/app/search";
+import { toolArgsFromSearch } from "../../src/app/search";
 import { VIEW_PATH } from "../../src/app/viewPaths";
-import { BridgeContext, ToolCallError, type Bridge, type HostInfo } from "../../src/bridge/bridge";
-import { createMockBridge } from "../../src/bridge/mockBridge";
+import { ToolCallError } from "../../src/bridge/bridge";
 import { FIXTURES } from "../../dev/fixtures";
+import { makeBridge, pathFor, renderView } from "./testHelpers";
 
 const TODAY = "2026-09-15";
 const ARGS = { start_date: "2026-09-01", end_date: "2026-09-10", order: "terlaris" } as const;
@@ -34,46 +29,6 @@ afterAll(() => {
   });
 });
 
-function pathFor(view: ViewName, args: Record<string, unknown>): string {
-  const search = searchFromToolArgs(view, args, TODAY);
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(search)) params.set(key, typeof value === "string" ? value : JSON.stringify(value));
-  const query = params.toString();
-  return query === "" ? VIEW_PATH[view] : `${VIEW_PATH[view]}?${query}`;
-}
-
-function makeBridge(options: { host?: Partial<HostInfo>; fail?: ToolCallError } = {}) {
-  const mock = createMockBridge();
-  const callTool = vi.fn((name: ToolName, args: unknown, signal?: AbortSignal): Promise<unknown> =>
-    options.fail ? Promise.reject(options.fail) : mock.callTool(name, args as ToolInput<ToolName>, signal),
-  );
-  const spies = {
-    callTool,
-    openLink: vi.fn(async (_url: string) => {}),
-    sendMessage: vi.fn(async (_text: string) => {}),
-    updateContext: vi.fn(async (_text: string) => {}),
-    toggleFullscreen: vi.fn(async () => {}),
-  };
-  const bridge: Bridge = {
-    ...spies,
-    host: { ...mock.host, canFullscreen: false, canSendMessage: false, canUpdateContext: false, ...options.host },
-    callTool: callTool as unknown as Bridge["callTool"],
-  };
-  return { bridge, ...spies };
-}
-
-function renderView(path: string, bridge: Bridge) {
-  const router = createWidgetRouter({ initialPath: path });
-  const utils = render(
-    <BridgeContext.Provider value={bridge}>
-      <QueryClientProvider client={createWidgetQueryClient()}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>
-    </BridgeContext.Provider>,
-  );
-  return { ...utils, router };
-}
-
 describe("Produk view", () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -87,7 +42,7 @@ describe("Produk view", () => {
   it("renders the ranking, categories and manual-transaction line without a <form>", async () => {
     const { bridge, callTool } = makeBridge();
     const fixture = FIXTURES.show_product_ranking(ARGS);
-    const { container } = renderView(pathFor("produk", ARGS), bridge);
+    const { container } = renderView(pathFor("produk", ARGS, TODAY), bridge);
 
     expect(await screen.findByText(fixture.rows[0]!.name)).toBeTruthy();
     expect(callTool).toHaveBeenCalledWith("show_product_ranking", ARGS, expect.anything());
@@ -103,7 +58,7 @@ describe("Produk view", () => {
 
   it("re-queries with the chosen order", async () => {
     const { bridge, callTool } = makeBridge();
-    renderView(pathFor("produk", ARGS), bridge);
+    renderView(pathFor("produk", ARGS, TODAY), bridge);
     await screen.findByText(FIXTURES.show_product_ranking(ARGS).rows[0]!.name);
 
     fireEvent.click(screen.getByRole("button", { name: /^Kurang laris/ }));
@@ -118,7 +73,7 @@ describe("Produk view", () => {
     const fixture = FIXTURES.show_product_ranking(ARGS);
     expect(fixture.next_page).not.toBeNull();
     const nextPage = FIXTURES.product_ranking_page({ ...ARGS, page: fixture.next_page! });
-    renderView(pathFor("produk", ARGS), bridge);
+    renderView(pathFor("produk", ARGS, TODAY), bridge);
 
     fireEvent.click(await screen.findByRole("button", { name: "Muat lebih banyak" }));
 
@@ -131,7 +86,7 @@ describe("Produk view", () => {
   it("opens Stok searching for the clicked product", async () => {
     const { bridge } = makeBridge();
     const fixture = FIXTURES.show_product_ranking(ARGS);
-    const { router } = renderView(pathFor("produk", ARGS), bridge);
+    const { router } = renderView(pathFor("produk", ARGS, TODAY), bridge);
 
     fireEvent.click(await screen.findByText(fixture.rows[0]!.name));
 
@@ -142,7 +97,7 @@ describe("Produk view", () => {
 
   it("updates the model context with the view, range and order", async () => {
     const { bridge, updateContext } = makeBridge({ host: { canUpdateContext: true } });
-    renderView(pathFor("produk", ARGS), bridge);
+    renderView(pathFor("produk", ARGS, TODAY), bridge);
 
     await waitFor(() => expect(updateContext).toHaveBeenCalled());
     const text = updateContext.mock.calls.at(-1)![0];
@@ -153,7 +108,7 @@ describe("Produk view", () => {
 
   it("shows the error panel with a retry for invalid filters", async () => {
     const { bridge, callTool } = makeBridge({ fail: new ToolCallError({ code: "INVALID_INPUT", message: "bad" }) });
-    renderView(pathFor("produk", ARGS), bridge);
+    renderView(pathFor("produk", ARGS, TODAY), bridge);
 
     expect(await screen.findByText("Filter tidak valid.")).toBeTruthy();
     const calls = callTool.mock.calls.length;
@@ -166,7 +121,7 @@ describe("Produk view", () => {
     const { bridge, callTool, openLink } = makeBridge({
       fail: new ToolCallError({ code: "QASIR_AUTH_EXPIRED", message: "expired", connect_url: connectUrl }),
     });
-    renderView(pathFor("produk", ARGS), bridge);
+    renderView(pathFor("produk", ARGS, TODAY), bridge);
 
     expect(await screen.findByText("Sesi Qasir sudah berakhir. Pemilik perlu menghubungkan ulang.")).toBeTruthy();
     expect(callTool).toHaveBeenCalledTimes(1);
