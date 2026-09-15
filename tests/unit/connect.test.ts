@@ -491,7 +491,7 @@ describe("multi-step auth continuations (mocked, no live PIN)", () => {
     expiresAt: Date.now() + 600_000,
   };
 
-  it("parses select_outlet and verify_otp fixtures", () => {
+  it("parses select_outlet and verify_otp fixtures (OTP parsed only to reject)", () => {
     const outlet = parseLoginResponse(JSON.parse(load("login-select-outlet.json")));
     expect(outlet.nextStep).toBe("select_outlet");
     expect(outlet.outlets).toHaveLength(2);
@@ -591,54 +591,32 @@ describe("multi-step auth continuations (mocked, no live PIN)", () => {
     expect(result.kind).toBe("error");
   });
 
-  it("continueWithOtp verifies and redirects", async () => {
-    const { continueWithOtp } = await import("../../src/connect/login-flow");
-    const dashHtml = load("dashboard-with-token.html");
-    const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+  it("rejects verify_otp next_step as error (OTP UX unsupported)", async () => {
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
       const u = String(url);
-      if (u.includes("otp-verify")) {
-        const body = JSON.parse(String(init?.body ?? "{}"));
-        expect(body.code).toBe("1234");
-        expect(body.verify_key).toBe("verify-key-fixture-not-secret");
-        return new Response(load("otp-verify-redirect.json"), { status: 200 });
+      if (u.includes("/sign-in")) {
+        return new Response(
+          '<meta name="csrf-token" content="www-csrf-token-value-here-xx">',
+          { status: 200 },
+        );
       }
-      if (u.includes("dashboard")) {
-        return new Response(dashHtml, { status: 200 });
+      if (u.includes("device-language")) {
+        return new Response("{}", { status: 200 });
+      }
+      if (u.includes("/api/auth/login")) {
+        return new Response(load("login-verify-otp.json"), { status: 200 });
       }
       return new Response("nope", { status: 404 });
     });
-    const result = await continueWithOtp({
-      pending: {
-        ...pendingBase,
-        step: "verify_otp",
-        mobile: "6281234567890",
-        merchantId: 42,
-        verifyKey: "verify-key-fixture-not-secret",
-      },
-      code: "1234",
+    const result = await runQasirLoginFlow({
+      username: "6281234567890",
+      pin: "123456",
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
-    expect(result.kind).toBe("connected");
-  });
-
-  it("resendOtp posts allowlisted host", async () => {
-    const { resendOtp } = await import("../../src/connect/login-flow");
-    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
-      expect(String(url)).toBe(
-        "https://www.qasir.id/api/auth/login/resend-otp",
-      );
-      return new Response(load("resend-otp-ok.json"), { status: 200 });
-    });
-    const out = await resendOtp({
-      pending: {
-        ...pendingBase,
-        step: "verify_otp",
-        mobile: "6281234567890",
-        merchantId: 42,
-        verifyKey: "k",
-      },
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-    expect(out.ok).toBe(true);
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") {
+      expect(result.message.toLowerCase()).toMatch(/otp/);
+      expect(result.message.toLowerCase()).toMatch(/not supported|unsupported/);
+    }
   });
 });

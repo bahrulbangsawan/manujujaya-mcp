@@ -17,14 +17,11 @@ import {
   connectLoginPage,
   connectPendingHtml,
   connectSuccessHtml,
-  connectVerifyOtpHtml,
   htmlResponse,
 } from "./html";
 import {
   continueWithMerchant,
   continueWithOutlet,
-  continueWithOtp,
-  resendOtp,
   runQasirLoginFlow,
 } from "./login-flow";
 import { matchConfiguredMerchant } from "./login-parse";
@@ -252,61 +249,25 @@ export async function handleConnectRoutes(
       );
     }
 
-    if (request.method === "POST" && url.pathname === "/connect/verify-otp") {
-      const body = await readBody(request);
-      assertFormCsrf(identity, body.csrf);
-      const pending = await doStub.getPending();
-      if (!pending || pending.step !== "verify_otp") {
-        throw new AppError(
-          ErrorCodes.INVALID_INPUT,
-          "No pending verify_otp step",
-        );
-      }
-      const result = await continueWithOtp({
-        pending,
-        code: body.code ?? "",
-        preferredMerchantSlug: env.MERCHANT_SLUG,
-      });
-      return respond(
-        await respondLoginResult({
-          request,
-          result,
-          doStub,
-          subject: identity.subject,
-          csrfToken: identity.csrfToken,
-          merchantSlugDefault: env.MERCHANT_SLUG,
-          outletIdDefault: env.DEFAULT_OUTLET_ID,
-        }),
-      );
-    }
-
-    if (request.method === "POST" && url.pathname === "/connect/resend-otp") {
-      const body = await readBody(request);
-      assertFormCsrf(identity, body.csrf);
-      const pending = await doStub.getPending();
-      if (!pending || pending.step !== "verify_otp") {
-        throw new AppError(
-          ErrorCodes.INVALID_INPUT,
-          "No pending verify_otp step",
-        );
-      }
-      const out = await resendOtp({ pending });
-      if (out.cookieJar !== pending.cookieJar) {
-        await doStub.savePending({ ...pending, cookieJar: out.cookieJar });
-      }
+    if (
+      url.pathname === "/connect/verify-otp" ||
+      url.pathname === "/connect/resend-otp"
+    ) {
+      const msg =
+        "OTP flows are gone (410). Connect supports phone/email + PIN only; " +
+        "OTP accounts are not supported.";
       if (wantsJson(request)) {
         return respond(
-          Response.json({ ok: out.ok, message: out.message }, { status: out.ok ? 200 : 400 }),
+          Response.json(
+            { code: ErrorCodes.INVALID_INPUT, message: msg },
+            { status: 410 },
+          ),
         );
       }
       return respond(
         htmlResponse(
-          connectVerifyOtpHtml({
-            csrfToken: identity.csrfToken,
-            mobile: pending.mobile,
-            message: out.message,
-          }),
-          out.ok ? 200 : 400,
+          connectErrorHtml({ csrfToken: identity.csrfToken, message: msg }),
+          410,
         ),
       );
     }

@@ -42,7 +42,7 @@ MCP: `POST /mcp` with `Authorization: Bearer <DEV_PSK>` when `ALLOW_DEV_PSK=true
 Hosted UI at **`/connect`** captures a dashboard session via phone/email + PIN (unofficial; not OAuth). Session material is stored in Durable Object `QasirSessionsDO` per MCP subject.
 
 1. Local: set `ALLOW_DEV_PSK=true` and open `/connect?psk=<DEV_PSK>`
-2. Sign in — merchant is **fixed** to `MERCHANT_SLUG` / Manuju Jaya (no picker); complete outlet / OTP if prompted (or use **paste fallback** if `API_TOKEN` cannot be scraped after `tokenWeb` redirect)
+2. Sign in — phone/email + PIN only (no OTP). Merchant is **fixed** to `MERCHANT_SLUG` / Manuju Jaya (no picker); complete outlet selection if prompted (or use **paste fallback** if `API_TOKEN` cannot be scraped after `tokenWeb` redirect)
 3. `GET /connect/status` shows connected state without secrets
 4. MCP `/mcp` uses DO session for that subject; Worker `QASIR_*` secrets remain optional bootstrap
 

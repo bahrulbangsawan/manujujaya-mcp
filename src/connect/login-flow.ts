@@ -21,9 +21,7 @@ export type { LoginFlowResult } from "./login-continue";
 export {
   continueWithMerchant,
   continueWithOutlet,
-  continueWithOtp,
   pendingFromNextStep,
-  resendOtp,
 } from "./login-continue";
 
 export interface LoginFlowInput {
@@ -39,7 +37,7 @@ export interface LoginFlowInput {
 
 /**
  * Server-side Qasir login per docs/auth-login.md.
- * Continuations (merchant / outlet / OTP) live in login-continue.ts.
+ * Continuations (merchant / outlet) live in login-continue.ts. OTP is rejected.
  * Never invents an API_TOKEN mint endpoint — scrapes dashboard HTML/JS best-effort.
  */
 export async function runQasirLoginFlow(

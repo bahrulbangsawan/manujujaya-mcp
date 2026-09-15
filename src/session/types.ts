@@ -25,7 +25,7 @@ export interface StoredQasirSession {
   subject: string;
 }
 
-/** Short-lived multi-step Connect auth (merchant / outlet / OTP). PIN held encrypted ≤ TTL. */
+/** Short-lived multi-step Connect auth (merchant / outlet). PIN held encrypted ≤ TTL. */
 export interface PendingAuthState {
   username: string;
   /** Temporary PIN for merchant re-login / outlet-select; never logged. */
@@ -35,6 +35,7 @@ export interface PendingAuthState {
   timezone: string;
   cookieJar: string;
   csrfToken: string;
+  /** verify_otp may appear in legacy DO blobs; Connect rejects OTP and never creates new ones. */
   step: "select_merchant" | "select_outlet" | "verify_otp";
   merchantId?: number;
   mobile?: string;

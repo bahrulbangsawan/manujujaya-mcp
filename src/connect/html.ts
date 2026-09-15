@@ -185,39 +185,7 @@ export function connectSelectOutletHtml(opts: {
   );
 }
 
-export function connectVerifyOtpHtml(opts: {
-  csrfToken: string;
-  mobile?: string;
-  message?: string;
-}): string {
-  const msg = opts.message
-    ? `<div class="warn">${esc(opts.message)}</div>`
-    : "";
-  const mobile = opts.mobile
-    ? `<p class="muted">Code sent to <strong>${esc(opts.mobile)}</strong></p>`
-    : "";
-  return LAYOUT(
-    "Verify OTP",
-    `<div class="card">
-  <h1>Verify OTP</h1>
-  ${mobile}
-  ${msg}
-  <form method="POST" action="/connect/verify-otp" autocomplete="off">
-    <input type="hidden" name="csrf" value="${esc(opts.csrfToken)}"/>
-    <label for="code">4-digit code</label>
-    <input id="code" name="code" inputmode="numeric" pattern="\\d{4}" maxlength="4" required autocomplete="one-time-code"/>
-    <button type="submit">Verify</button>
-  </form>
-  <form method="POST" action="/connect/resend-otp" style="margin-top:.5rem">
-    <input type="hidden" name="csrf" value="${esc(opts.csrfToken)}"/>
-    <button type="submit" class="secondary">Resend OTP</button>
-  </form>
-  <p class="muted" style="margin-top:1rem"><a href="/connect">Cancel</a></p>
-</div>`,
-  );
-}
-
-/** @deprecated stub page — prefer dedicated select/OTP UIs */
+/** @deprecated stub page — prefer dedicated select UIs */
 export function connectNextStepHtml(opts: {
   csrfToken: string;
   step: string;
@@ -248,10 +216,11 @@ export function connectPendingHtml(
       outlets: pending.outlets ?? [],
     });
   }
-  return connectVerifyOtpHtml({
+  return connectErrorHtml({
     csrfToken,
-    mobile: pending.mobile,
-    message,
+    message:
+      message ??
+      "OTP accounts are not supported. Use phone/email + PIN that lands on redirect / merchant / outlet only.",
   });
 }
 

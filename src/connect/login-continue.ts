@@ -3,7 +3,6 @@ import type { PendingAuthState } from "../session/types";
 import { mergeCookies, parseSetCookieHeaders } from "./cookie-jar";
 import { extractApiTokenFromHtml, extractCsrfFromHtml } from "./extract-token";
 import {
-  isValidOtpCode,
   matchConfiguredMerchant,
   parseLoginResponse,
   type ParsedLoginResponse,
@@ -36,7 +35,7 @@ export type LoginFlowResult =
     }
   | {
       kind: "next_step";
-      step: Exclude<ParsedLoginResponse["nextStep"], "redirect" | null>;
+      step: "select_merchant" | "select_outlet";
       parsed: ParsedLoginResponse;
       cookieJar: string;
       deviceId: string;
@@ -53,8 +52,6 @@ const SIGN_IN = "https://www.qasir.id/sign-in?lang=id";
 export const LOGIN_URL = "https://www.qasir.id/api/auth/login";
 export const DEVICE_LANG_URL = "https://www.qasir.id/api/auth/device-language";
 export const OUTLET_SELECT_URL = "https://www.qasir.id/api/auth/outlet-select";
-export const OTP_VERIFY_URL = "https://www.qasir.id/api/auth/login/otp-verify";
-export const RESEND_OTP_URL = "https://www.qasir.id/api/auth/login/resend-otp";
 export const SIGN_IN_URL = SIGN_IN;
 
 export function wwwHeaders(csrf: string, jar: string): Headers {
@@ -174,13 +171,20 @@ export async function resolveAuthJson(ctx: {
     };
   }
 
-  if (
-    parsed.nextStep === "select_outlet" ||
-    parsed.nextStep === "verify_otp"
-  ) {
+  if (parsed.nextStep === "verify_otp") {
+    return {
+      kind: "error",
+      message:
+        "OTP accounts are not supported. Connect only accepts phone/email + PIN " +
+        "accounts that land on redirect, merchant selection, or outlet selection. " +
+        "Use an account that does not require OTP verification.",
+    };
+  }
+
+  if (parsed.nextStep === "select_outlet") {
     return {
       kind: "next_step",
-      step: parsed.nextStep,
+      step: "select_outlet",
       parsed,
       cookieJar: ctx.jar,
       deviceId: ctx.deviceId,
@@ -405,101 +409,10 @@ export async function continueWithOutlet(input: {
   });
 }
 
-/** POST /api/auth/login/otp-verify (4-digit code). */
-export async function continueWithOtp(input: {
-  pending: PendingAuthState;
-  code: string;
-  preferredMerchantSlug?: string;
-  fetchImpl?: typeof fetch;
-}): Promise<LoginFlowResult> {
-  const fetchImpl = input.fetchImpl ?? fetch;
-  const { pending } = input;
-  if (!isValidOtpCode(input.code)) {
-    return { kind: "error", message: "OTP code must be exactly 4 digits" };
-  }
-  if (!pending.mobile || !pending.merchantId || !pending.verifyKey) {
-    return {
-      kind: "error",
-      message: "Pending OTP state incomplete (mobile/merchant_id/verify_key)",
-    };
-  }
-
-  let jar = pending.cookieJar;
-  const res = await fetchImpl(OTP_VERIFY_URL, {
-    method: "POST",
-    headers: wwwHeaders(pending.csrfToken, jar),
-    body: JSON.stringify({
-      mobile: pending.mobile,
-      merchant_id: pending.merchantId,
-      code: input.code,
-      verify_key: pending.verifyKey,
-      device_id: pending.deviceId,
-    }),
-    redirect: "manual",
-  });
-  jar = mergeCookies(jar, parseSetCookieHeaders(res.headers));
-  return resolveAuthJson({
-    fetchImpl,
-    jar,
-    wwwCsrf: pending.csrfToken,
-    deviceId: pending.deviceId,
-    username: pending.username,
-    pin: pending.pin,
-    deviceType: pending.deviceType,
-    timezone: pending.timezone,
-    merchantId: pending.merchantId,
-    preferredMerchantSlug: input.preferredMerchantSlug,
-    res,
-  });
-}
-
-/** POST /api/auth/login/resend-otp. */
-export async function resendOtp(input: {
-  pending: PendingAuthState;
-  fetchImpl?: typeof fetch;
-}): Promise<{ ok: boolean; message: string; cookieJar: string }> {
-  const fetchImpl = input.fetchImpl ?? fetch;
-  const { pending } = input;
-  if (!pending.mobile || !pending.merchantId) {
-    return {
-      ok: false,
-      message: "Pending OTP state incomplete",
-      cookieJar: pending.cookieJar,
-    };
-  }
-  let jar = pending.cookieJar;
-  const res = await fetchImpl(RESEND_OTP_URL, {
-    method: "POST",
-    headers: wwwHeaders(pending.csrfToken, jar),
-    body: JSON.stringify({
-      mobile: pending.mobile,
-      merchant_id: pending.merchantId,
-    }),
-    redirect: "manual",
-  });
-  jar = mergeCookies(jar, parseSetCookieHeaders(res.headers));
-  let json: unknown;
-  try {
-    json = await res.json();
-  } catch {
-    return { ok: false, message: "Resend OTP returned non-JSON", cookieJar: jar };
-  }
-  const parsed = parseLoginResponse(json);
-  return {
-    ok: parsed.ok,
-    message: parsed.message || (parsed.ok ? "OTP resent" : "Resend failed"),
-    cookieJar: jar,
-  };
-}
-
 export function pendingFromNextStep(
   result: Extract<LoginFlowResult, { kind: "next_step" }>,
 ): Omit<PendingAuthState, "createdAt" | "expiresAt"> {
-  if (
-    result.step !== "select_merchant" &&
-    result.step !== "select_outlet" &&
-    result.step !== "verify_otp"
-  ) {
+  if (result.step !== "select_merchant" && result.step !== "select_outlet") {
     throw new AppError(
       ErrorCodes.INVALID_INPUT,
       `Cannot persist pending step: ${result.step}`,
