@@ -13,12 +13,12 @@ The owner must also have connected a Qasir session once at `https://mcp.manujuja
 
 ## Claude.ai and Claude Desktop
 
-1. Settings → **Connectors** → **Add custom connector**.
-2. Name: `Manuju Jaya Qasir`. URL: `https://mcp.manujujaya.com/mcp`. No client ID or secret is needed, because the server supports dynamic registration.
-3. Choose **Connect**. The consent page opens; enter the owner password and choose **Approve**.
-4. In a chat, enable the connector from the tools menu.
+1. **Pro, Max and Free plans:** Customize → **Connectors** → **+** → **Add custom connector**. **Team and Enterprise:** an organization Owner uses Organization settings → Connectors → Add → Custom → Web; members then choose **Connect** under Customize → Connectors.
+2. Name: `Manuju Jaya Qasir`. URL: `https://mcp.manujujaya.com/mcp`. Leave OAuth Client ID/Secret empty; in the two-step dialog choose **Use Claude's published identity** or **Register automatically**, never **Use your own OAuth client**. The server supports CIMD and dynamic registration.
+3. Choose **Add** (or **Connect**). The consent page opens; enter the owner password and choose **Approve**.
+4. In a chat, enable the connector with **+** → **Connectors**.
 
-Connectors added on Claude.ai also show up in Claude Desktop for the same account. *Status: expected to work. This client has not been verified against `legacy: "reject"`.*
+Connectors added on Claude.ai also show up in Claude Desktop, Cowork and the mobile apps for the same account. Claude reaches the server from Anthropic's cloud (`160.79.104.0/21`), so Cloudflare Bot Fight Mode or WAF rules must not block it. *Status: expected to work. This client has not been verified against `legacy: "reject"`.*
 
 ## Claude Code (verified: 2.1.272)
 
@@ -27,7 +27,7 @@ claude mcp add --transport http manujujaya https://mcp.manujujaya.com/mcp
 # optional: --scope user (all projects) or --scope project (writes .mcp.json)
 ```
 
-Then, inside Claude Code, run `/mcp`, select `manujujaya` and choose **Authenticate**. A browser opens to the consent page; enter the owner password and approve. `claude mcp list` should show it connected.
+Then, inside Claude Code, run `/mcp`, select `manujujaya` and choose **Authenticate** (or run `claude mcp login manujujaya`). A browser opens to the consent page; enter the owner password and approve. `claude mcp list` should show it connected.
 
 ## Cursor
 
@@ -41,7 +41,7 @@ Then, inside Claude Code, run `/mcp`, select `manujujaya` and choose **Authentic
 }
 ```
 
-Open Cursor Settings → MCP. When the server shows "Needs login", start the sign-in and approve in the browser. *Not verified against this server.*
+Open **Customize → MCPs** in Cursor's sidebar, turn the server on and follow its authentication prompt. Cursor's desktop callback is `http://localhost:8787/callback`, so stop a local `bun run dev` (same port) while signing in. *Not verified against this server.*
 
 ## VS Code (GitHub Copilot)
 
@@ -61,8 +61,9 @@ Start the server from the file's CodeLens or the MCP view, then allow the authen
 
 ```bash
 codex mcp add manujujaya --url https://mcp.manujujaya.com/mcp
-codex mcp login manujujaya
 ```
+
+`codex mcp add` detects OAuth and starts the browser sign-in immediately. Run `codex mcp login manujujaya` only if that sign-in did not complete or has expired.
 
 *Not verified against this server.* ChatGPT **web** cannot use this config; it needs its own connector setup where the plan allows one.
 
