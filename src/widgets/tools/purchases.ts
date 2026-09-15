@@ -15,16 +15,14 @@ import {
 import { parseQasirDateTime } from "../qasir-dates";
 import { toNumber, toNumberOrNull, toText } from "../qasir-values";
 import type { AnyWidgetToolDef, ToolContext, WidgetToolDef } from "./define";
-import { capRows, envelopeData, formatQty, indoDate, joinLines, nextPageOf, pageInfo, recordsAt, rupiah } from "./shared";
+import { capRows, capStructuredRows, envelopeData, formatQty, indoDate, joinLines, nextPageOf, pageInfo, recordsAt, rupiah, TRUNCATED_REASON } from "./shared";
 
 type PurchaseRow = ToolOutput<"show_purchase_orders">["rows"][number];
 type PurchaseItem = ToolOutput<"purchase_order_items">["items"][number];
 
-const TRUNCATED_REASON = "Baris terakhir dipangkas karena hasil melebihi 250 KB.";
-
-/** Trim rows so the payload, measured with its truncation fields set, fits STRUCTURED_MAX_CHARS. */
-function fitRows<T, P extends object>(rows: T[], build: (rows: T[]) => P): P & { truncated: boolean; truncated_reason: string | null } {
-  const capped = capRows(rows, STRUCTURED_MAX_CHARS, (kept) => ({ ...build(kept), truncated: true, truncated_reason: TRUNCATED_REASON }));
+/** Trim items so the payload, measured with its truncation fields set, fits STRUCTURED_MAX_CHARS. */
+function fitItems<T extends object>(items: PurchaseItem[], build: (items: PurchaseItem[]) => T): T & { truncated: boolean; truncated_reason: string | null } {
+  const capped = capRows(items, STRUCTURED_MAX_CHARS, (kept) => ({ ...build(kept), truncated: true, truncated_reason: TRUNCATED_REASON }));
   return { ...build(capped.rows), truncated: capped.truncated, truncated_reason: capped.truncated ? TRUNCATED_REASON : null };
 }
 
@@ -104,17 +102,20 @@ export const purchaseOrdersTool: WidgetToolDef<typeof purchaseOrdersInput> = {
     const matching = filter === "semua" ? scanned : scanned.filter((row) => row.status === filter);
     const nextPage = more ? lastPage + 1 : null;
     const statusCounts = countStatuses(scanned);
-    const build = (rows: PurchaseRow[]) => ({
-      view: "pembelian" as const,
-      ...ctx.meta(outletId),
-      status_filter: filter,
-      rows,
-      status_counts: statusCounts,
-      scanned_rows: scanned.length,
-      total_rows: totalRows,
-      next_page: nextPage,
-    });
-    const structured: ToolOutput<"show_purchase_orders"> = fitRows(matching, build);
+    const structured: ToolOutput<"show_purchase_orders"> = capStructuredRows(
+      {
+        view: "pembelian" as const,
+        ...ctx.meta(outletId),
+        status_filter: filter,
+        status_counts: statusCounts,
+        scanned_rows: scanned.length,
+        total_rows: totalRows,
+        next_page: nextPage,
+        truncated: false,
+        truncated_reason: null,
+      },
+      matching,
+    );
 
     const filterLabel = filter === "semua" ? "Semua status" : poStatusLabel(filter);
     const countsLine = Object.entries(statusCounts)
@@ -144,8 +145,10 @@ export const purchaseOrdersPageTool: WidgetToolDef<typeof purchaseOrdersPageInpu
   async run(input, ctx) {
     const outletId = await ctx.outletId(input.outlet_id);
     const result = await fetchPurchasePage(ctx, outletId, input.page);
-    const build = (rows: PurchaseRow[]) => ({ ...ctx.meta(outletId), page: input.page, rows, next_page: result.nextPage });
-    const structured: ToolOutput<"purchase_orders_page"> = fitRows(result.rows, build);
+    const structured: ToolOutput<"purchase_orders_page"> = capStructuredRows(
+      { ...ctx.meta(outletId), page: input.page, next_page: result.nextPage, truncated: false, truncated_reason: null },
+      result.rows,
+    );
     const text = joinLines([
       `Halaman ${input.page} PO: ${result.rows.length} PO.`,
       result.nextPage === null ? "Tidak ada halaman berikutnya." : `Halaman berikutnya: ${result.nextPage}.`,
@@ -184,8 +187,12 @@ export const purchaseOrderItemsTool: WidgetToolDef<typeof purchaseOrderItemsInpu
     });
     const items = recordsAt(envelopeData(res, "purchases.items"), "purchase_items").map(projectPurchaseItem);
     const total = items.reduce((sum, item) => sum + item.subtotal, 0);
-    const build = (rows: PurchaseItem[]) => ({ ...ctx.meta(outletId), purchase_id: input.purchase_id, items: rows, total });
-    const structured: ToolOutput<"purchase_order_items"> = fitRows(items, build);
+    const structured: ToolOutput<"purchase_order_items"> = fitItems(items, (capped) => ({
+      ...ctx.meta(outletId),
+      purchase_id: input.purchase_id,
+      items: capped,
+      total,
+    }));
     const text = joinLines([
       `Rincian PO ${input.purchase_id}: ${items.length} item, total ${rupiah(total)}.`,
       ...items
