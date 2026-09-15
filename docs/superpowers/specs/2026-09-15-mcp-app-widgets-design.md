@@ -124,7 +124,7 @@ scripts/widgets-smoke.ts              headless Chrome: each view inside sandbox=
 - **Initial data.** `ontoolinput` stores the view tool's arguments. `ontoolresult` validates `structuredContent` with the contract and seeds `queryClient.setQueryData([toolName, args], data)`, so the first render needs no extra call. Changing filters calls the same view tool again through `callServerTool` (view tools default to `visibility ["model","app"]`).
 - **Navigation.** A compact view switcher (Penjualan · Produk · Stok · Pembelian · Transaksi · Piutang) plus cross-links:
   - chart day → transaksi for that day
-  - top product → stok search
+  - top product → Produk ranking (a product row there → stok search)
   - customer → transaksi with `customer_id`
   - piutang tile on the dashboard → piutang
 
@@ -139,7 +139,7 @@ scripts/widgets-smoke.ts              headless Chrome: each view inside sandbox=
   - `requestDisplayMode("fullscreen")` button only when the host lists it.
   - `updateModelContext` with the current view + filters (no personal data) when the host supports it.
   - `sendMessage` buttons (see §5) only when `hostCapabilities.message` is present.
-- **Forms.** TanStack Form for the date-range and search fields, rendered without `<form>`: apply via `type="button"` and an Enter `onKeyDown`. Pacer `useDebouncedValue(search, { wait: 400 })` for the stock and customer search.
+- **Forms.** TanStack Form for the date-range fields (search fields are plain inputs debounced with Pacer), rendered without `<form>`: apply via `type="button"` and an Enter `onKeyDown`. Pacer `useDebouncedValue(search, { wait: 400 })` for the stock and customer search.
 - **Formatting.**
   - Money: `Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 })`.
   - Dates: `id-ID`, Asia/Jakarta.
