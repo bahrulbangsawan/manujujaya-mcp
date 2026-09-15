@@ -4,6 +4,7 @@ import { mergeCookies, parseSetCookieHeaders } from "./cookie-jar";
 import { extractApiTokenFromHtml, extractCsrfFromHtml } from "./extract-token";
 import {
   isValidOtpCode,
+  matchConfiguredMerchant,
   parseLoginResponse,
   type ParsedLoginResponse,
 } from "./login-parse";
@@ -94,6 +95,8 @@ export async function resolveAuthJson(ctx: {
   timezone: string;
   merchantId?: number;
   outletId?: string;
+  /** When set, select_merchant is auto-resolved — never returned as UI. */
+  preferredMerchantSlug?: string;
   res: Response;
 }): Promise<LoginFlowResult> {
   let loginJson: unknown;
@@ -116,8 +119,62 @@ export async function resolveAuthJson(ctx: {
     };
   }
 
+  if (parsed.nextStep === "select_merchant") {
+    const preferred = ctx.preferredMerchantSlug?.trim();
+    if (preferred) {
+      const match = matchConfiguredMerchant(parsed.merchants ?? [], preferred);
+      if (!match.ok) {
+        return { kind: "error", message: match.message };
+      }
+      if (ctx.merchantId !== undefined) {
+        return {
+          kind: "error",
+          message:
+            "Login still requires merchant selection after merchant_id was sent; " +
+            "only the configured merchant is allowed and picker is disabled",
+        };
+      }
+      // Auto re-POST login with merchant_id (same as continueWithMerchant)
+      let jar = ctx.jar;
+      const body = {
+        username: ctx.username,
+        password: ctx.pin,
+        device_id: ctx.deviceId,
+        device_type: ctx.deviceType,
+        timezone: ctx.timezone,
+        merchant_id: match.merchantId,
+      };
+      const loginRes = await ctx.fetchImpl(LOGIN_URL, {
+        method: "POST",
+        headers: wwwHeaders(ctx.wwwCsrf, jar),
+        body: JSON.stringify(body),
+        redirect: "manual",
+      });
+      jar = mergeCookies(jar, parseSetCookieHeaders(loginRes.headers));
+      return resolveAuthJson({
+        ...ctx,
+        jar,
+        merchantId: match.merchantId,
+        preferredMerchantSlug: preferred,
+        res: loginRes,
+      });
+    }
+    return {
+      kind: "next_step",
+      step: "select_merchant",
+      parsed,
+      cookieJar: ctx.jar,
+      deviceId: ctx.deviceId,
+      csrfToken: ctx.wwwCsrf,
+      username: ctx.username,
+      pin: ctx.pin,
+      deviceType: ctx.deviceType,
+      timezone: ctx.timezone,
+      merchantId: ctx.merchantId,
+    };
+  }
+
   if (
-    parsed.nextStep === "select_merchant" ||
     parsed.nextStep === "select_outlet" ||
     parsed.nextStep === "verify_otp"
   ) {
@@ -254,6 +311,7 @@ export async function followRedirectAndScrape(input: {
 export async function continueWithMerchant(input: {
   pending: PendingAuthState;
   merchantId: number;
+  preferredMerchantSlug?: string;
   fetchImpl?: typeof fetch;
 }): Promise<LoginFlowResult> {
   const fetchImpl = input.fetchImpl ?? fetch;
@@ -287,6 +345,7 @@ export async function continueWithMerchant(input: {
     deviceType: pending.deviceType,
     timezone: pending.timezone,
     merchantId,
+    preferredMerchantSlug: input.preferredMerchantSlug,
     res: loginRes,
   });
 }
@@ -296,6 +355,7 @@ export async function continueWithOutlet(input: {
   pending: PendingAuthState;
   outletId: number;
   merchantId?: number;
+  preferredMerchantSlug?: string;
   fetchImpl?: typeof fetch;
 }): Promise<LoginFlowResult> {
   const fetchImpl = input.fetchImpl ?? fetch;
@@ -340,6 +400,7 @@ export async function continueWithOutlet(input: {
     timezone: pending.timezone,
     merchantId,
     outletId: String(input.outletId),
+    preferredMerchantSlug: input.preferredMerchantSlug,
     res,
   });
 }
@@ -348,6 +409,7 @@ export async function continueWithOutlet(input: {
 export async function continueWithOtp(input: {
   pending: PendingAuthState;
   code: string;
+  preferredMerchantSlug?: string;
   fetchImpl?: typeof fetch;
 }): Promise<LoginFlowResult> {
   const fetchImpl = input.fetchImpl ?? fetch;
@@ -386,6 +448,7 @@ export async function continueWithOtp(input: {
     deviceType: pending.deviceType,
     timezone: pending.timezone,
     merchantId: pending.merchantId,
+    preferredMerchantSlug: input.preferredMerchantSlug,
     res,
   });
 }

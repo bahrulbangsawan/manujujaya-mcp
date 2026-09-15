@@ -27,6 +27,7 @@ import {
   resendOtp,
   runQasirLoginFlow,
 } from "./login-flow";
+import { matchConfiguredMerchant } from "./login-parse";
 import { validatePasteInput } from "./paste";
 import {
   mapConnectError,
@@ -78,7 +79,11 @@ export async function handleConnectRoutes(
       const pending = await doStub.getPending();
       if (pending) {
         return respond(
-          htmlResponse(connectPendingHtml(identity.csrfToken, pending)),
+          htmlResponse(
+            connectPendingHtml(identity.csrfToken, pending, undefined, {
+              merchantSlugConfigured: env.MERCHANT_SLUG,
+            }),
+          ),
         );
       }
       return respond(
@@ -155,6 +160,7 @@ export async function handleConnectRoutes(
         timezone: body.timezone,
         deviceType: body.deviceType,
         merchantId: body.merchantId ? Number(body.merchantId) : undefined,
+        preferredMerchantSlug: env.MERCHANT_SLUG,
       });
       return respond(
         await respondLoginResult({
@@ -182,9 +188,27 @@ export async function handleConnectRoutes(
           "No pending select_merchant step",
         );
       }
+      const match = matchConfiguredMerchant(
+        pending.merchants ?? [],
+        env.MERCHANT_SLUG,
+      );
+      if (!match.ok) {
+        throw new AppError(ErrorCodes.INVALID_INPUT, match.message);
+      }
+      // Ignore client-supplied merchant_id unless it matches configured merchant
+      if (body.merchantId) {
+        const clientId = Number(body.merchantId);
+        if (Number.isFinite(clientId) && clientId !== match.merchantId) {
+          throw new AppError(
+            ErrorCodes.INVALID_INPUT,
+            `Only the configured merchant (${env.MERCHANT_SLUG}) is allowed`,
+          );
+        }
+      }
       const result = await continueWithMerchant({
         pending,
-        merchantId: Number(body.merchantId),
+        merchantId: match.merchantId,
+        preferredMerchantSlug: env.MERCHANT_SLUG,
       });
       return respond(
         await respondLoginResult({
@@ -213,6 +237,7 @@ export async function handleConnectRoutes(
         pending,
         outletId: Number(body.outletId),
         merchantId: body.merchantId ? Number(body.merchantId) : undefined,
+        preferredMerchantSlug: env.MERCHANT_SLUG,
       });
       return respond(
         await respondLoginResult({
@@ -240,6 +265,7 @@ export async function handleConnectRoutes(
       const result = await continueWithOtp({
         pending,
         code: body.code ?? "",
+        preferredMerchantSlug: env.MERCHANT_SLUG,
       });
       return respond(
         await respondLoginResult({

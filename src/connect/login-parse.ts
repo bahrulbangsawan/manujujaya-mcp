@@ -156,6 +156,71 @@ function normalizeOutlets(raw: unknown): PendingOutlet[] {
   return out;
 }
 
+export type MatchConfiguredMerchantResult =
+  | { ok: true; merchantId: number; businessName?: string }
+  | { ok: false; message: string };
+
+/**
+ * Extract merchant slug from a Qasir subdomain_url (full URL, with/without
+ * path or trailing slash). Returns null if not a merchant *.qasir.id host.
+ */
+export function slugFromSubdomainUrl(subdomainUrl: string): string | null {
+  const raw = subdomainUrl.trim();
+  if (!raw) return null;
+  try {
+    const withProto = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    const url = new URL(withProto);
+    const host = url.hostname.toLowerCase();
+    if (!host.endsWith(".qasir.id")) return null;
+    const slug = host.slice(0, -".qasir.id".length);
+    if (!slug || slug.includes(".")) return null;
+    if (slug === "www" || slug === "pos" || slug === "order") return null;
+    return slug;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pick the configured merchant from a select_merchant list.
+ * Matches subdomain_url host/slug to `merchantSlug`. Never returns a picker —
+ * if the configured slug is absent, returns an error result.
+ */
+export function matchConfiguredMerchant(
+  merchants: PendingMerchant[],
+  merchantSlug: string,
+): MatchConfiguredMerchantResult {
+  const configured = merchantSlug.trim().toLowerCase();
+  if (!configured) {
+    return {
+      ok: false,
+      message: "Configured merchant slug is empty; only a fixed merchant is allowed",
+    };
+  }
+
+  const matches = merchants.filter((m) => {
+    if (!m.subdomain_url) return false;
+    const slug = slugFromSubdomainUrl(m.subdomain_url);
+    return slug !== null && slug.toLowerCase() === configured;
+  });
+
+  if (matches.length >= 1) {
+    const pick = matches[0]!;
+    return {
+      ok: true,
+      merchantId: pick.id,
+      businessName: pick.business_name,
+    };
+  }
+
+  return {
+    ok: false,
+    message:
+      `Only the configured merchant (${configured}) is allowed. ` +
+      `It was not found in the account merchant list — merchant picker is disabled.`,
+  };
+}
+
 export function normalizeUsername(input: string): string {
   const t = input.trim();
   if (t.includes("@")) return t.toLowerCase();
