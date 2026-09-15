@@ -16,7 +16,9 @@ import { daysBetween, jakartaDateOf, parseQasirDateTime } from "../qasir-dates";
 import { isRecord, toNumber, toNumberOrNull, toText } from "../qasir-values";
 import type { AnyWidgetToolDef, ToolContext, WidgetToolDef } from "./define";
 import {
+  TRUNCATED_REASON,
   capRows,
+  capStructuredRows,
   envelopeData,
   formatQty,
   indoDate,
@@ -42,7 +44,6 @@ const HISTORY_TYPES = STOCK_MOVEMENT_TYPES.join(",");
 /** Largest page size the registry allows; velocity reads up to VELOCITY_MAX_PAGES of these. */
 const VELOCITY_PAGE_SIZE = 100;
 const TEXT_ITEMS = 10;
-const TRUNCATED_REASON = "Baris terakhir dipangkas karena hasil melebihi 250 KB.";
 
 // ── Upstream requests (queries match src/registry/ops/catalog.ts) ───────────
 
@@ -134,16 +135,6 @@ function projectMovement(row: Record<string, unknown>): Movement {
 /** stockHistories names single-variant items "Produk-"; drop the dangling separator. */
 function historyProductName(data: Record<string, unknown>): string {
   return toText(data.product_name).replace(/-+$/, "").trim();
-}
-
-function capStructuredRows<B extends { truncated: boolean; truncated_reason: string | null }, R>(
-  base: B,
-  rows: R[],
-): B & { rows: R[] } {
-  const capped = capRows(rows, STRUCTURED_MAX_CHARS, (kept) => ({ ...base, truncated: true, truncated_reason: TRUNCATED_REASON, rows: kept }));
-  return capped.truncated
-    ? { ...base, truncated: true, truncated_reason: TRUNCATED_REASON, rows: capped.rows }
-    : { ...base, rows: capped.rows };
 }
 
 // ── Text ────────────────────────────────────────────────────────────────────

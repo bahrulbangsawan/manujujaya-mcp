@@ -4,7 +4,6 @@ import {
   PAGE_SIZE,
   PRODUCT_ORDER_LABEL,
   PRODUCT_ORDER_SORT,
-  STRUCTURED_MAX_CHARS,
   isoDate,
   productRankingInput,
   productRankingPageInput,
@@ -15,7 +14,7 @@ import {
 import { assertDateRange, parseIndonesianDate, previousRange } from "../qasir-dates";
 import { isRecord, parsePercent, toNumber, toNumberOrNull, toText } from "../qasir-values";
 import type { AnyWidgetToolDef, WidgetToolDef } from "./define";
-import { capRows, envelopeData, formatQty, indoDate, joinLines, nextPageOf, recordsAt, rupiah } from "./shared";
+import { capStructuredRows, envelopeData, formatQty, indoDate, joinLines, nextPageOf, recordsAt, rupiah } from "./shared";
 
 type DashboardData = ToolOutput<"show_sales_dashboard">;
 type RankingData = ToolOutput<"show_product_ranking">;
@@ -28,7 +27,6 @@ type Range = { start_date: string; end_date: string };
 const DASHBOARD_CATEGORIES = 10;
 const DASHBOARD_TOP_PRODUCTS = 5;
 const TEXT_TOP_PRODUCTS = 10;
-const TRUNCATED_REASON = "Baris terakhir dipangkas karena hasil melebihi 250 KB.";
 
 // ── Upstream requests (operationIds are fixed; queries match src/registry/ops/reports.ts) ──
 
@@ -110,16 +108,6 @@ function projectChange(value: unknown): Change {
   const trend = isRecord(value) ? value : {};
   const direction = trend.status === "up" || trend.status === "down" ? trend.status : null;
   return { percent: parsePercent(trend.value), direction };
-}
-
-function capStructuredRows<B extends { truncated: boolean; truncated_reason: string | null }, R>(
-  base: B,
-  rows: R[],
-): B & { rows: R[] } {
-  const capped = capRows(rows, STRUCTURED_MAX_CHARS, (kept) => ({ ...base, truncated: true, truncated_reason: TRUNCATED_REASON, rows: kept }));
-  return capped.truncated
-    ? { ...base, truncated: true, truncated_reason: TRUNCATED_REASON, rows: capped.rows }
-    : { ...base, rows: capped.rows };
 }
 
 // ── Text ────────────────────────────────────────────────────────────────────

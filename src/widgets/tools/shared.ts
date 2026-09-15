@@ -1,6 +1,6 @@
 /** Helpers shared by every widget tool: upstream envelopes, pagination, size caps, Indonesian text. */
 import { AppError, ErrorCodes, isAppErrorLike } from "../../errors/codes";
-import { pageInput } from "../contract";
+import { STRUCTURED_MAX_CHARS, pageInput } from "../contract";
 import { isRecord, toNumberOrNull } from "../qasir-values";
 
 /** Maximum length of a widget tool's text block. */
@@ -73,6 +73,25 @@ export function capRows<T>(rows: T[], maxChars: number, build: (rows: T[]) => un
     else hi = mid - 1;
   }
   return { rows: rows.slice(0, lo), truncated: true };
+}
+
+/** Shared wording for every `rows`-capping tool result (view tools and their `_page` helpers alike). */
+export const TRUNCATED_REASON = "Baris terakhir dipangkas karena hasil melebihi 250 KB.";
+
+/**
+ * Cap a structured payload's `rows` to STRUCTURED_MAX_CHARS, setting `truncated`/
+ * `truncated_reason` when rows had to be dropped from the tail. `base` carries every
+ * other field of the payload (including its own `truncated`/`truncated_reason`, which
+ * this only overrides when capping actually happened).
+ */
+export function capStructuredRows<B extends { truncated: boolean; truncated_reason: string | null }, R>(
+  base: B,
+  rows: R[],
+): B & { rows: R[] } {
+  const capped = capRows(rows, STRUCTURED_MAX_CHARS, (kept) => ({ ...base, truncated: true, truncated_reason: TRUNCATED_REASON, rows: kept }));
+  return capped.truncated
+    ? { ...base, truncated: true, truncated_reason: TRUNCATED_REASON, rows: capped.rows }
+    : { ...base, rows: capped.rows };
 }
 
 const RUPIAH = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
