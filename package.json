@@ -22,7 +22,8 @@
     "widgets:dev": "vite --config widgets/vite.config.ts",
     "widgets:build": "vite build --config widgets/vite.config.ts",
     "widgets:test": "vitest run --config widgets/vitest.config.ts",
-    "widgets:check-types": "tsc --noEmit -p widgets/tsconfig.json"
+    "widgets:check-types": "tsc --noEmit -p widgets/tsconfig.json",
+    "widgets:bundle": "bun run scripts/bundle-widgets.ts"
   },
   "engines": {
     "node": ">=20"
