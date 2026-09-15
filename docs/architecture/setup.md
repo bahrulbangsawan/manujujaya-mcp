@@ -54,14 +54,29 @@ claude mcp add --transport http manujujaya-local http://localhost:8787/mcp \
 ### Tests and checks
 
 ```bash
-bun run check-types          # tsc (Worker) + tsc -p tsconfig.scripts.json
+bun run check-types          # tsc (Worker) + tsc -p tsconfig.scripts.json + tsc -p widgets/tsconfig.json
 bun run test                 # vitest; use this, not `bun test`
+bun run widgets:test         # widget unit and render tests (vitest + happy-dom)
+bun run widgets:smoke        # committed widget bundle in headless Google Chrome (see Widgets below)
 bun run coverage:validate    # manifest vs the 13 API docs
 bun run openapi:validate
 bun run build                # wrangler deploy --dry-run --outdir=dist (uploads nothing)
 ```
 
 After editing any of the 13 API docs (`docs/<name>.md`), run `bun run docs:bundle` to regenerate `src/docs/bundled.ts`. Then run `bun run coverage:report` to regenerate `docs/architecture/coverage.md`. `tests/unit/docs-pii.test.ts` fails if the bundle drifts or known sample PII comes back.
+
+### Widgets (MCP App views)
+
+The six views live in `widgets/` (React 19 + TanStack, Tailwind 4, Bahasa Indonesia). They share their data contract with the Worker through `src/widgets/contract.ts`. The Worker serves one prebuilt HTML string from `src/widgets/bundled.ts`, which is generated and committed.
+
+| Command | What it does |
+| --- | --- |
+| `bun run widgets:dev` | Vite dev server. Open `http://localhost:5173/?view=transaksi` (or any view). Outside an iframe the views use the mock bridge with the synthetic data in `widgets/dev/fixtures.ts`, so no Worker and no Qasir session are needed |
+| `bun run widgets:bundle` | `vite build` into one HTML file, then rewrites `src/widgets/bundled.ts` (the HTML plus `WIDGET_SOURCE_HASH`). Run it after changing anything under `widgets/`, `src/widgets/contract.ts`, `package.json` or `bun.lock`, and commit the result. `tests/unit/widgets-bundle.test.ts` fails with "run bun run widgets:bundle" while the bundle is stale |
+| `bun run widgets:test` / `bun run widgets:check-types` | Widget tests (happy-dom) and the widget TypeScript project |
+| `bun run widgets:smoke` | Loads each view from the committed bundle in headless Google Chrome, inside `<iframe sandbox="allow-scripts">` with the MCP Apps default CSP. The host page is an ext-apps `AppBridge` answering `tools/call` from the fixtures. It checks landmark text, no `<form>`, no console errors, zero network requests, no repeated opening tool call, and one `transactions_page` round trip. It needs Google Chrome installed, or `CHROME_PATH=/path/to/chrome`. It refuses to run while `src/widgets/bundled.ts` is stale |
+
+To switch the widgets off, set `ENABLE_WIDGETS=false` in `wrangler.jsonc` `vars` (or in `.dev.vars` locally) and redeploy. The 15 widget tools and the `ui://` resources disappear; `search` and `execute` are unchanged.
 
 ### End-to-end script
 
@@ -74,7 +89,10 @@ bun run scripts/e2e-mcp.ts --base https://mcp.manujujaya.com --live
 ```
 
 - `--connect` signs in as owner, then logs in to Qasir through `/connect` using `QASIR_E2E_USERNAME` / `QASIR_E2E_PIN`. It picks `DEFAULT_OUTLET_ID` when Qasir asks for an outlet. This replaces the stored Qasir session on that Worker. A login does not write Qasir data.
+- Without `--live`, the script also checks the widget surface when it is enabled: the 15 widget tools with their `_meta.ui` (resource URI or `["app"]` visibility), the six `ui://` resources and their MCP App mime type, and one `resources/read`.
 - `--live` adds read-only upstream calls: `products.list`, `purchases.list`, the suppliers HTML adapter, and a page-size rejection check.
+  - It also calls each widget view tool once with a small range: yesterday and today, the last 7 days, today, and all open credit. `show_stock_browser` uses `--stock-search <fragment>`, default `a`.
+  - Each `structuredContent` is validated against `src/widgets/contract.ts`, and each text block is checked for length and phone numbers. Only shapes (keys, array lengths, types) are printed, never values.
 - Each run registers a new OAuth client and grant in `OAUTH_KV`. See [operations.md § Revoking clients](operations.md#revoking-oauth-clients-and-tokens) to clean them up.
 - The script logs whether a 2025-era client was rejected or served (INFO, not a failure).
 
@@ -95,7 +113,7 @@ bun run scripts/e2e-mcp.ts --base https://mcp.manujujaya.com --live
 | `durable_objects` | `MUTATION_APPROVALS` → `MutationApprovalsDO`, `QASIR_SESSIONS` → `QasirSessionsDO` | Approvals, Qasir session, rate limits |
 | `migrations` | `v1`: `new_sqlite_classes: [MutationApprovalsDO, QasirSessionsDO]` | SQLite-backed DOs. Add a **new** tag for any class change; never edit `v1` |
 | `observability` | `enabled: true`, `head_sampling_rate: 1` | Workers Logs for every request |
-| `vars` | `PUBLIC_BASE_URL=https://mcp.manujujaya.com`, `MERCHANT_SLUG`, `DEFAULT_OUTLET_ID`, `ENABLE_MUTATIONS=false`, `ALLOW_DEV_PSK=false`, `REQUIRE_SESSION_ENCRYPTION=true`, `MCP_LEGACY_MODE=reject`, `MCP_SERVER_NAME`, `MCP_SERVER_VERSION` | Change vars **in this file** and redeploy. `wrangler deploy` (without `--keep-vars`) resets vars edited in the dashboard |
+| `vars` | `PUBLIC_BASE_URL=https://mcp.manujujaya.com`, `MERCHANT_SLUG`, `DEFAULT_OUTLET_ID`, `ENABLE_MUTATIONS=false`, `ENABLE_WIDGETS=true`, `ALLOW_DEV_PSK=false`, `REQUIRE_SESSION_ENCRYPTION=true`, `MCP_LEGACY_MODE=reject`, `MCP_SERVER_NAME`, `MCP_SERVER_VERSION` | Change vars **in this file** and redeploy. `wrangler deploy` (without `--keep-vars`) resets vars edited in the dashboard |
 
 ### First-time setup (already done for production)
 
@@ -133,7 +151,7 @@ bunx wrangler deploy --secrets-file .secrets.production
 ### Deploy
 
 ```bash
-bun run check-types && bun run test && bun run coverage:validate && bun run build
+bun run check-types && bun run test && bun run widgets:test && bun run coverage:validate && bun run build
 bunx wrangler deploy
 curl https://mcp.manujujaya.com/healthz        # {"ok":true,...,"protocol":"2026-07-28","mutations":false}
 OWNER_PASSWORD='…' bun run scripts/e2e-mcp.ts --base https://mcp.manujujaya.com --live

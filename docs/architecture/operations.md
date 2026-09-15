@@ -6,7 +6,7 @@ Production: Worker `manujujaya-mcp` on the Cloudflare account bisa.digital, serv
 
 ```bash
 curl -s https://mcp.manujujaya.com/healthz
-# {"ok":true,"name":"manujujaya-mcp","version":"0.2.0","protocol":"2026-07-28","mutations":false}
+# {"ok":true,"name":"manujujaya-mcp","version":"0.3.0","protocol":"2026-07-28","mutations":false}
 
 curl -s https://mcp.manujujaya.com/.well-known/oauth-protected-resource/mcp   # resource + scopes
 curl -si -X POST https://mcp.manujujaya.com/mcp | head -5                      # expect 401 + WWW-Authenticate

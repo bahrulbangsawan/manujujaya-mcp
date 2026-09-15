@@ -70,6 +70,24 @@ Only the owner can approve, in a browser, with the owner cookie and CSRF. The MC
 - Pending outlet-selection state never contains the PIN and hard-expires after 10 minutes (alarm).
 - The merchant origin is always taken from `MERCHANT_SLUG`, never from stored or caller data.
 
+### Widget tools and views (`src/widgets/*`, `widgets/`)
+
+- **Scope and operations.** Every widget tool checks `qasir:read` inside its handler. It dispatches only its hard-coded read `operationId`s through `QasirDispatcher` and never passes `allowMutation`. There is no model-written code. `tests/security/widget-tools.test.ts` asserts, for each tool:
+  - a missing scope gives `FORBIDDEN` with zero dispatches;
+  - only the allowed operations are dispatched, and never a non-read one;
+  - out-of-bounds inputs are rejected;
+  - no credential strings appear in results.
+- **Bounded fan-out.** Each call has its own budget: a per-tool request cap (the largest is `customer_debt_detail` with 45), 4 concurrent requests, and a 30 s deadline that aborts in-flight fetches. Upstream responses may total about 8 MB. `structuredContent` is capped at 250,000 characters and the text at 2,000.
+- **Error and log hygiene.** Errors return `{ code, message }` only, plus `connect_url` for `QASIR_AUTH_EXPIRED`. Logs record `tool.<name>.error` with the error code, never arguments or results.
+- **The view HTML is static.** `src/widgets/bundled.ts` holds no data and no secrets. `tests/unit/widgets-bundle.test.ts` rejects the following in the bundle:
+  - external `src`/`href`/`url(http` references;
+  - `<form>` elements;
+  - token-like strings.
+- **The views run in the host's sandboxed iframe.** They read data only through the host's `tools/call` and make no network requests; the smoke test runs them under the default MCP Apps CSP with `connect-src 'none'`.
+  - No `localStorage`, `sessionStorage` or cookies, and no `dangerouslySetInnerHTML`: all text is rendered by React.
+  - Links open only through the host's `openLink`.
+  - "Minta Claude buat pesan penagihan" sends a message only when the user clicks it. The message carries the customer name, invoice numbers, remaining amounts and due dates, and never the phone number.
+
 ### Logging and output hygiene (`src/observability/*`)
 
 - Logs are JSON lines to Workers Logs. Keys such as `authorization`, `cookie`, `x-csrf-token`, `password`, `pin` and `token` are redacted, and so are bearer-like or long token-like strings.
@@ -78,7 +96,15 @@ Only the owner can approve, in a browser, with the owner cookie and CSRF. The MC
 
 ## Residual risks and operator responsibilities
 
-- **Live data reaches the model provider.** `execute` results are not PII-redacted. Customer names, phone numbers and sales figures go to whichever MCP client or model the owner connected. Grant access only to clients you trust with that data.
+- **Live data reaches the model provider.** `execute` results and widget `structuredContent` are not PII-redacted. Customer names, phone numbers and sales figures go to whichever MCP client or model the owner connected. Grant access only to clients you trust with that data.
+- **App-only visibility is cosmetic.** `_meta.ui.visibility: ["app"]` only asks hosts to hide the 9 helper tools from the model. The server lists them to every client, and any holder of a `qasir:read` token can call them directly, including from a client that ignores MCP Apps. Each is read-only, scope-checked and budgeted, so it is as safe as `execute`, but it is one more path to the same data.
+- **Personal data in widget results.** `structuredContent` carries:
+  - customer names: `show_customer_debts`, `customer_debt_detail`, `order_detail`, and the customer filter of `show_transactions`;
+  - mobile numbers: `order_detail`, `customer_debt_detail`;
+  - staff names: `order_detail` (`cashier`) and `stock_history` (`movements[].by`);
+  - free-text stock notes typed by staff, which can contain names or numbers: `stock_history` (`movements[].note`).
+
+  Hosts may pass `structuredContent` to the model. Text blocks never contain phone numbers, and name customers only in the `show_customer_debts` top 5. To turn the whole surface off, set `ENABLE_WIDGETS=false`.
 - **The owner password is the single factor.** Anyone with it can mint tokens (180-day refresh), read all data and approve mutations. Use a long random password stored in a password manager.
 - **Rotating the password does not revoke tokens.** See [operations.md § Revoking OAuth clients](operations.md#revoking-oauth-clients-and-tokens).
 - **Consent phishing.** A malicious site can start an OAuth flow against this server with any client name. The redirect origin on the consent page is the defence. Never approve a flow you did not start.
