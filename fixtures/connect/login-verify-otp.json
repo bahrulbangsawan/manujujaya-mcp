@@ -1,0 +1,10 @@
+{
+  "status": 1,
+  "message": "",
+  "next_step": "verify_otp",
+  "data": {
+    "mobile": "6281234567890",
+    "merchant_id": 42,
+    "verify_key": "verify-key-fixture-not-secret"
+  }
+}

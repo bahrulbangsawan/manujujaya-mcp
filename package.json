@@ -1,0 +1,34 @@
+{
+  "name": "manujujaya-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy:dry-run": "wrangler deploy --dry-run --outdir=dist",
+    "cf-typegen": "wrangler types",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit",
+    "coverage:validate": "bun run scripts/validate-coverage.ts",
+    "openapi:validate": "bun run scripts/validate-openapi.ts",
+    "build": "wrangler deploy --dry-run --outdir=dist"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@cloudflare/codemode": "^0.5.2",
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "^0.23.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260915.1",
+    "@types/node": "^26.5.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0",
+    "wrangler": "^4.131.2"
+  }
+}

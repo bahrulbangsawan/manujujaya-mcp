@@ -1,0 +1,25 @@
+# Copy to .dev.vars for local wrangler dev. Never commit .dev.vars.
+#
+# Local MCP + Connect gate (ALLOW_DEV_PSK must be "true" for DEV_PSK path):
+ALLOW_DEV_PSK=true
+DEV_PSK=local-dev-psk-change-me
+
+# Optional bootstrap when Connect UI is not used yet:
+QASIR_API_TOKEN=
+QASIR_CSRF_TOKEN=
+QASIR_COOKIE=
+
+# Production-style Connect gate without OAuth (optional):
+CONNECT_NONCE=
+
+# Session encryption for QasirSessionsDO (AES-GCM).
+# Generate: openssl rand -base64 32
+# When set, apiToken/csrf/cookie/pending PIN are encrypted at rest.
+SESSION_ENCRYPTION_KEY=
+# Fail closed on DO writes if key missing (use true in prod-like):
+REQUIRE_SESSION_ENCRYPTION=false
+
+OAUTH_CLIENT_ID=
+OAUTH_CLIENT_SECRET=
+OAUTH_ISSUER=
+OAUTH_AUDIENCE=
