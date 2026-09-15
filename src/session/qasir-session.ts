@@ -49,7 +49,84 @@ export class StaticQasirSessionProvider implements QasirSessionProvider {
       merchantOrigin: `https://${slug}.qasir.id`,
       defaultOutletId: this.#env.DEFAULT_OUTLET_ID,
       secrets,
+      source: "static",
     };
+  }
+}
+
+/** RPC surface for QasirSessionsDO stub (or test mock). */
+export interface QasirSessionsStub {
+  getSession(): Promise<import("./types").StoredQasirSession | null>;
+  saveSession(
+    input: import("./qasir-sessions-do").SaveSessionInput,
+  ): Promise<import("./types").StoredQasirSession>;
+  clear(): Promise<void>;
+  status(): Promise<import("./types").QasirSessionPublicStatus>;
+  checkRateLimit(input: {
+    key: string;
+    limit?: number;
+    windowMs?: number;
+  }): Promise<{ ok: boolean; remaining: number; retryAfterMs: number }>;
+}
+
+export interface CompositeSessionOptions {
+  env: SessionEnv;
+  subject: string;
+  /** Stub for the subject's QasirSessionsDO (RPC). */
+  sessionsDo: QasirSessionsStub;
+}
+
+/**
+ * Prefer Durable Object session for the authenticated subject;
+ * fall back to Worker secrets QASIR_* for ops/bootstrap.
+ * On markExpired, clears the DO session when present.
+ */
+export class CompositeQasirSessionProvider implements QasirSessionProvider {
+  #env: SessionEnv;
+  #do: QasirSessionsStub;
+  #static: StaticQasirSessionProvider;
+  #preferDo = true;
+
+  constructor(options: CompositeSessionOptions) {
+    this.#env = options.env;
+    this.#do = options.sessionsDo;
+    this.#static = new StaticQasirSessionProvider(options.env);
+  }
+
+  async markExpired(): Promise<void> {
+    this.#preferDo = false;
+    try {
+      await this.#do.clear();
+    } catch {
+      // ignore DO clear failures; static path still marks expired below
+    }
+    this.#static.markExpired();
+  }
+
+  async getSession(): Promise<QasirSessionContext> {
+    if (this.#preferDo) {
+      try {
+        const stored = await this.#do.getSession();
+        if (stored?.apiToken && stored.csrfToken) {
+          const slug = stored.merchantSlug || this.#env.MERCHANT_SLUG;
+          return {
+            merchantSlug: slug,
+            merchantOrigin: `https://${slug}.qasir.id`,
+            defaultOutletId:
+              stored.outletId || this.#env.DEFAULT_OUTLET_ID,
+            secrets: {
+              apiToken: stored.apiToken,
+              csrfToken: stored.csrfToken,
+              cookie: stored.cookieJar,
+            },
+            source: "do",
+          };
+        }
+      } catch {
+        // fall through to static
+      }
+    }
+    return this.#static.getSession();
   }
 }
 
@@ -64,4 +141,11 @@ function readSecrets(env: SessionEnv): QasirSessionSecrets {
     );
   }
   return { apiToken, csrfToken, cookie };
+}
+
+export function sessionsDoForSubject(
+  ns: DurableObjectNamespace,
+  subject: string,
+): QasirSessionsStub & DurableObjectStub {
+  return ns.get(ns.idFromName(subject)) as QasirSessionsStub & DurableObjectStub;
 }

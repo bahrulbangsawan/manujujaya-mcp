@@ -2,6 +2,7 @@
 interface Env {
   LOADER: WorkerLoader;
   MUTATION_APPROVALS: DurableObjectNamespace;
+  QASIR_SESSIONS: DurableObjectNamespace;
   MERCHANT_SLUG: string;
   DEFAULT_OUTLET_ID: string;
   ENABLE_MUTATIONS: string;
@@ -12,6 +13,8 @@ interface Env {
   QASIR_CSRF_TOKEN?: string;
   QASIR_COOKIE?: string;
   DEV_PSK?: string;
+  CONNECT_NONCE?: string;
+  SESSION_ENCRYPTION_KEY?: string;
   OAUTH_ISSUER?: string;
   OAUTH_AUDIENCE?: string;
 }

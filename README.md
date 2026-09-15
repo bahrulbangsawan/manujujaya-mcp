@@ -37,21 +37,36 @@ bun run dev
 Health: `GET /healthz`  
 MCP: `POST /mcp` with `Authorization: Bearer <DEV_PSK>` when `ALLOW_DEV_PSK=true`.
 
+## Connect Qasir (preferred)
+
+Hosted UI at **`/connect`** captures a dashboard session via phone/email + PIN (unofficial; not OAuth). Session material is stored in Durable Object `QasirSessionsDO` per MCP subject.
+
+1. Local: set `ALLOW_DEV_PSK=true` and open `/connect?psk=<DEV_PSK>`
+2. Sign in (or use **paste fallback** if `API_TOKEN` cannot be scraped after `tokenWeb` redirect — expected until the mint hop is observed)
+3. `GET /connect/status` shows connected state without secrets
+4. MCP `/mcp` uses DO session for that subject; Worker `QASIR_*` secrets remain optional bootstrap
+
+See [docs/connect-qasir.md](docs/connect-qasir.md).
+
 ## Secrets (never commit)
 
 | Secret | Purpose |
 | --- | --- |
-| `QASIR_API_TOKEN` | Dashboard `API_TOKEN` (32-char session) |
-| `QASIR_CSRF_TOKEN` | Dashboard CSRF |
-| `QASIR_COOKIE` | Cookie jar for HTML/ajax (`qasir_sess`, `XSRF-TOKEN`, …) |
-| `DEV_PSK` | Local-only bearer when `ALLOW_DEV_PSK=true` |
+| `QASIR_API_TOKEN` | Optional bootstrap dashboard `API_TOKEN` (32-char) |
+| `QASIR_CSRF_TOKEN` | Optional bootstrap CSRF |
+| `QASIR_COOKIE` | Optional bootstrap cookie jar (`qasir_sess`, `XSRF-TOKEN`, …) |
+| `DEV_PSK` | Local-only bearer / Connect gate when `ALLOW_DEV_PSK=true` |
+| `CONNECT_NONCE` | Connect gate when OAuth/PSK not used |
+| `SESSION_ENCRYPTION_KEY` | Reserved for encrypting DO session blobs |
 
 Production: configure OAuth issuer/audience + token verification (fail-closed until wired). Scopes: `qasir:read`, `qasir:write`, `qasir:admin`.
 
 ```bash
+# Optional bootstrap — prefer /connect once deployed
 wrangler secret put QASIR_API_TOKEN
 wrangler secret put QASIR_CSRF_TOKEN
 wrangler secret put QASIR_COOKIE
+wrangler secret put CONNECT_NONCE
 ```
 
 ## Tools
@@ -76,6 +91,7 @@ wrangler secret put QASIR_COOKIE
 - [Architecture](docs/architecture/overview.md)
 - [Setup](docs/architecture/setup.md)
 - [API coverage](docs/architecture/coverage.md)
+- [Connect Qasir](docs/connect-qasir.md)
 - Authoritative API capture notes remain under `docs/*.md`
 
 ## License

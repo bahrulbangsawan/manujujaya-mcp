@@ -2,13 +2,17 @@ import { createMcpHandler } from "agents/mcp/server";
 import type { AuthInfo } from "@modelcontextprotocol/server";
 import { MutationApprovalsDO } from "./approvals/mutation-approvals";
 import { authenticateRequest, type AuthPrincipal } from "./auth/verify";
+import {
+  createSessionProvider,
+  handleConnectRoutes,
+} from "./connect/routes";
 import { BUNDLED_DOCS } from "./docs/bundled";
-import { AppError, ErrorCodes } from "./errors/codes";
+import { AppError } from "./errors/codes";
 import { createManujujayaServer } from "./mcp/server";
 import { log } from "./observability/log";
-import { StaticQasirSessionProvider } from "./session/qasir-session";
+import { QasirSessionsDO } from "./session/qasir-sessions-do";
 
-export { MutationApprovalsDO };
+export { MutationApprovalsDO, QasirSessionsDO };
 
 function buildAuthInfo(principal: AuthPrincipal): AuthInfo {
   return {
@@ -35,13 +39,17 @@ export default {
         version: env.MCP_SERVER_VERSION,
         mutations: env.ENABLE_MUTATIONS === "true",
         protocol: "2026-07-28",
+        connect: true,
       });
     }
+
+    const connectRes = await handleConnectRoutes(request, env);
+    if (connectRes) return connectRes;
 
     if (url.pathname === "/mcp") {
       try {
         const principal = await authenticateRequest(request, env);
-        const sessions = new StaticQasirSessionProvider(env);
+        const sessions = createSessionProvider(env, principal.subject);
         const approvalId = env.MUTATION_APPROVALS.idFromName(principal.subject);
         const handler = createMcpHandler(
           () =>
@@ -50,7 +58,9 @@ export default {
               sessions,
               principal,
               readDoc: async (name) => BUNDLED_DOCS[name] ?? null,
-              approvals: env.MUTATION_APPROVALS.get(approvalId) as unknown as import("./mcp/server").ServerDeps["approvals"],
+              approvals: env.MUTATION_APPROVALS.get(
+                approvalId,
+              ) as unknown as import("./mcp/server").ServerDeps["approvals"],
             }),
           {
             route: "/mcp",

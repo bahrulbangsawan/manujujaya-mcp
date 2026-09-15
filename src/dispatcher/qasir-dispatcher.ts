@@ -229,7 +229,7 @@ async function assertAuthStatus(
   sessions: QasirSessionProvider,
 ): Promise<void> {
   if (response.status === 401 || response.status === 403) {
-    sessions.markExpired();
+    await sessions.markExpired();
     throw new AppError(
       ErrorCodes.QASIR_AUTH_EXPIRED,
       `Upstream auth failed (${response.status})`,

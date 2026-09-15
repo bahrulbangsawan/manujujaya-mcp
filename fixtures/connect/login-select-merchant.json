@@ -1,0 +1,10 @@
+{
+  "status": 1,
+  "message": "",
+  "next_step": "select_merchant",
+  "data": {
+    "merchants": [
+      { "id": 1, "business_name": "Store A", "subdomain_url": "https://store-a.qasir.id" }
+    ]
+  }
+}
