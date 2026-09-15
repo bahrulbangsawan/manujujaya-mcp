@@ -159,7 +159,7 @@ scripts/widgets-smoke.ts              headless Chrome: each view inside sandbox=
 - The `operationId` is hard-coded per tool. Dispatch goes through the per-request `dispatcher` from `createManujujayaServer` (injectable in tests) and never sets `allowMutation`.
 - A per-call `RequestBudget`: `maxRequests` per tool (listed below), concurrency 4, 30 s deadline (the dispatcher's own 25 s per-request limit still applies).
 - Result = one Indonesian `text` block (≤ 2,000 chars, meaningful on hosts without widgets) + `structuredContent` that matches `contract.ts`.
-  - Every structured payload carries `view`, `outlet_id`, `generated_at` (ISO), `truncated: boolean` (plus `truncated_reason`).
+  - Every structured payload carries `outlet_id`, `generated_at` (ISO), `truncated: boolean` and `truncated_reason`; view payloads also carry `view`.
   - Hard cap: serialized `structuredContent` ≤ 250 KB. Rows are trimmed from the tail with `truncated` set.
 - `outputSchema` is not declared (hosts may validate strictly; SDK accepts extra keys). The contract is enforced by server unit tests and parsed in the widget.
 - **Outlet.** `outlet_id` is optional; resolution order is input → stored session `outletId` → `env.DEFAULT_OUTLET_ID`. Documented in `overview.md` (replacing the "not injected" note).
@@ -178,7 +178,7 @@ Descriptions start with "Open an interactive … widget" and mention when to use
      - `reports.products` (`-quantity`, count 5, pseudo row removed)
      - `reports.summaries.installment` (2015-01-01 → today, for the piutang tile)
    - Structured:
-     - `kpis {gross, net_sales, profit, transactions, quantity, discount, tax, average_ticket}`
+     - `kpis {sales_before_discount, discount, gross_sales, profit, capital, tax, transactions, quantity, average_ticket}`
      - `changes {gross|profit|transactions|quantity: {percent: number|null, direction: up|down|null}}`
      - `comparison {start_date, end_date}`
      - `trend[] {date, amount, comparison_date, comparison_amount}`
@@ -199,7 +199,7 @@ Descriptions start with "Open an interactive … widget" and mention when to use
    - App-only:
      - `stock_page {search?, page, outlet_id?}` (budget 1)
      - `stock_history {inventory_id, page, outlet_id?}` (budget 1, count 50, all 6 types): `movements[] {id, at (ISO), type, quantity, balance, note, by}`, `stock`, `product_name`, `next_page`
-     - `stock_velocity {inventory_id, outlet_id?}` (budget 5): pages histories until movements are older than 30 days; returns `sold_30d`, `refunded_30d`, `stock`, `days_of_cover|null` (stock ÷ daily net sales), `oldest_scanned_at`, `truncated`
+     - `stock_velocity {inventory_id, outlet_id?}` (budget 5): pages histories until movements are older than 30 days; returns `window_days`, `sold`, `refunded`, `net_sold`, `daily_rate`, `stock`, `days_of_cover|null` (stock ÷ daily net sales), `oldest_scanned_at`, `truncated`
 4. **`show_purchase_orders`** `{status?: "semua"|"order_processed"|"completed"|"canceled" (default semua), outlet_id?}` → `pembelian.html`. Budget 5.
    - `purchases.list` count 100, page 1; for a specific status scan pages 1–5 and filter.
    - Structured: `rows[] {id, order_no, supplier, total, status, created_at}`, `status_counts`, `scanned_rows`, `next_page`.

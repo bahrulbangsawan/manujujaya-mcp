@@ -110,10 +110,10 @@ docs/mcp-tools.md, docs/architecture/{overview,security,setup}.md  T16
 
 - **Lane S (server), in order:** T1 → T2 → T3 → T4 → T5 → T6 → T7.
 - **Lane W (widget), in order:** T8 → T9 → T10 → T12 → T13 → T14. T8 depends on T1 (it imports `src/widgets/contract.ts`), so Lane W starts after T1 is committed.
-- **Worktrees:** run Lane S and Lane W in separate git worktrees (superpowers:using-git-worktrees), each branched from the T1 commit. Merge both into `feat/mcp-app-widgets` before T11. Never run the two lanes at the same time in one working tree: T8 extends `check-types` to `widgets/`, and T10 adds a source-hash test that fails while `widgets/src` has uncommitted edits.
-- **Join, in order:** T11 (needs T7 + T10) → T15 (needs T11 + T14) → T16 (needs T15).
+- **Worktrees:** run Lane S and Lane W in separate git worktrees (superpowers:using-git-worktrees), each branched from the T1 commit. Never run the two lanes at the same time in one working tree: T8 extends `check-types` to `widgets/`, and T10 adds a source-hash test that fails while `widgets/src` has uncommitted edits.
+- **Lane W merges into `feat/mcp-app-widgets` twice:** once after T10, before T11; again after T14, before T15. After each merge, run `bun install` and `bun run widgets:bundle`; if `git status` then shows `src/widgets/bundled.ts` modified, commit it as part of the merge.
+- **Join, in order:** T11 (needs T7 + the first Lane W merge) → T15 (needs T11 + the second Lane W merge) → T16 (needs T15).
 - **Shared files:** the lanes otherwise touch disjoint files. The exceptions are `package.json`/`bun.lock` (T8, T10, T15, T16) and `src/widgets/bundled.ts`, which T10 generates and T12, T13, T14, T15 and T16 regenerate and commit, because widget sources, `package.json` and `bun.lock` feed the source hash.
-- **After merging Lane W:** rerun `bun run widgets:bundle` so `WIDGET_SOURCE_HASH` reflects the merged `bun.lock` and `package.json`.
 
 ---
 
@@ -9497,7 +9497,7 @@ Usage rules for T12–T14 (fixed here):
 - Build DataTable columns once at module scope: `const col = dataColumnHelper<StockRow>(); const columns = col.columns([col.accessor("name", { header: "Produk", meta: { minWidth: 200, grow: 2 } }), ...])`. Accessor columns sort (numbers start descending, text ascending); `col.display({ id, header, cell })` columns do not. Plain `ColumnDef<Row>` objects with `id` + `accessorFn` + `cell` (for example `const COLUMNS: ColumnDef<StockRow>[] = [{ id: "name", header: "Produk", accessorFn: (r) => r.name, cell: (c) => c.getValue() }]`) are equivalent and sort the same way (T12–T13 use them); objects without `accessorFn` behave like display columns.
 - Type chip option arrays as `ChipOption<T>[]`, otherwise TypeScript infers `T` from the first literal only.
 - In happy-dom (no layout) DataTable renders the first `ceil(maxHeight / estimateRowHeight)` rows (13 by default) before the scroll box is measured, so route tests can assert on the first rows without stubbing sizes. Stubbing `offsetHeight`/`offsetWidth` is optional; it only makes the virtualizer measure (as the "virtualizes rows" test below does), which is needed only to test scrolling.
-- A view that opens one detail at a time (for example a customer's debt detail) can pass `expandedRowId` and set it from `onRowClick`; the detail then renders directly under the clicked row inside the scroll box instead of below the table.
+- A view that opens one detail at a time can pass `expandedRowId` and set it from `onRowClick`; the detail then renders directly under the clicked row inside the scroll box instead of below the table.
 - No component renders `<form>`, `<a target>` or `dangerouslySetInnerHTML`; every button is `type="button"`.
 
 - [ ] **Step 1: Write the failing display-component test**
@@ -11615,6 +11615,9 @@ describe("bundled widget HTML (src/widgets/bundled.ts)", () => {
     expect(WIDGET_HTML).not.toMatch(/<link[^>]*rel\s*=\s*["']?stylesheet/i);
     expect(WIDGET_HTML).not.toMatch(/url\(\s*["']?https?:/i);
     expect(WIDGET_HTML).not.toMatch(/import\(\s*["'`]https?:/i);
+    expect(WIDGET_HTML).not.toMatch(
+      /<(?:img|link|iframe|source|audio|video|embed|object|a)\b[^>]*\s(?:src|href)\s*=\s*["']?(?:https?:)?\/\//i,
+    );
   });
 
   it("stays under 1 MB and renders no <form>", () => {
@@ -12857,10 +12860,10 @@ Rules these views follow (T13 and T14 follow the same ones):
 - **Route factories.** Each factory calls `createRoute({ getParentRoute: () => root, path: VIEW_PATH[view], validateSearch: <view>Search, component })`. The page component reads `useSearch({ strict: false })`.
 - **Tool arguments.** They are always `toolArgsFromSearch(view, search, jakartaTodayBrowser())`, used unchanged as the `useToolQuery` arguments. That is the same key `AppShell` primes with the host's tool result, so the opening call is never repeated.
 - **Navigation.** Every navigation, within a view or across views, goes through `navigate({ to: VIEW_PATH[target], search: searchFromToolArgs(target, toolArgs, today) })`. No route hard-codes another view's search field names. `outlet_id` is carried along when present.
-- **Cross-links (spec §3.3 and §5).** In Penjualan, a chart day opens Transaksi for that day, the receivable tile opens Piutang, the "Lihat peringkat produk" link beside "Produk terlaris" opens Produk for the same range, and a top product opens Stok searching its name. In Produk, a ranking row opens Stok searching its name. Search text is cut to 100 characters, the contract's `searchInput` bound.
+- **Cross-links (spec §3.3 and §5).** In Penjualan, a chart day opens Transaksi for that day, the receivable tile opens Piutang, the "Lihat peringkat produk" link beside "Produk terlaris" opens Produk for the same range, and a top product also opens Produk for the same range with `order: "terlaris"`. In Produk, a ranking row opens Stok searching its name. Search text is cut to 100 characters, the contract's `searchInput` bound.
 - **Paging.** Page tools take the view's `start_date`/`end_date`/`order`/`outlet_id` from the tool arguments and `startPage = data.next_page`.
 - **Styling.** Class names use T8's tokens only (`text-fg-muted`, `border-line`, `bg-surface`, `text-info`, `text-danger`).
-- **Host features.** `sendMessage` only when `bridge.host.canSendMessage`, and `updateContext` only when `bridge.host.canUpdateContext`. The message and context text carry the range, filters and KPIs, never customer data.
+- **Host features.** `sendMessage` only when `bridge.host.canSendMessage`, and `updateContext` only when `bridge.host.canUpdateContext`. `updateContext` text and the Penjualan/Produk `sendMessage` text carry the range, filters and KPIs, never customer data. The user-initiated Piutang collection message (T14) is the one exception: it may name the customer and their invoices, but never the phone number.
 - **Tests.** They drive a real router (`createWidgetRouter`) with a spy bridge that delegates to `createMockBridge()`, and derive expected values from `FIXTURES`. They assert cross-view navigation through `router.state.location` plus `toolArgsFromSearch`, so they keep passing once T13/T14 register the target views. DataTable renders the rows that fit in `maxHeight` before measuring (T9), so stubbing `offsetHeight`/`offsetWidth` is optional; the stubs in these tests only make the virtualizer measure. Every route test file has a `QASIR_AUTH_EXPIRED` reconnect-panel test (spec §7). Produk, Stok and Pembelian also check one other error code each (`INVALID_INPUT`, `QASIR_RATE_LIMITED`, `FORBIDDEN`).
 
 - [ ] **Step 1: Write the failing Penjualan test**
@@ -12997,7 +13000,7 @@ describe("Penjualan view", () => {
     expect(args.end_date).toBe("2026-09-03");
   });
 
-  it("links the receivable tile to Piutang, the ranking link to Produk and a top product to Stok", async () => {
+  it("links the receivable tile to Piutang, the ranking link to Produk and a top product to Produk with order terlaris", async () => {
     const { bridge } = makeBridge();
     const fixture = FIXTURES.show_sales_dashboard(ARGS);
     const first = renderView(pathFor("penjualan", ARGS), bridge);
@@ -13015,9 +13018,9 @@ describe("Penjualan view", () => {
 
     const third = renderView(pathFor("penjualan", ARGS), bridge);
     fireEvent.click(await screen.findByText(fixture.top_products[0]!.name));
-    await waitFor(() => expect(third.router.state.location.pathname).toBe(VIEW_PATH.stok));
-    const stokArgs = toolArgsFromSearch("stok", third.router.state.location.search as Record<string, unknown>, TODAY);
-    expect(stokArgs.search).toBe(fixture.top_products[0]!.name);
+    await waitFor(() => expect(third.router.state.location.pathname).toBe(VIEW_PATH.produk));
+    const topProductArgs = toolArgsFromSearch("produk", third.router.state.location.search as Record<string, unknown>, TODAY);
+    expect(topProductArgs).toMatchObject({ ...ARGS, order: "terlaris" });
   });
 
   it("offers 'Tanya Claude tentang periode ini' only when the host accepts messages", async () => {
@@ -13325,7 +13328,7 @@ function PenjualanPage() {
                   Lihat peringkat produk
                 </button>
               </div>
-              <p className="text-xs text-fg-muted">Pilih produk untuk melihat stoknya.</p>
+              <p className="text-xs text-fg-muted">Pilih produk untuk melihat peringkatnya.</p>
               <BarList
                 emptyText="Belum ada produk terjual"
                 items={data.top_products.map((product) => ({
@@ -13333,7 +13336,7 @@ function PenjualanPage() {
                   label: product.name,
                   value: product.quantity,
                   valueLabel: `${formatNumber(product.quantity)} ${product.unit}`.trim(),
-                  onSelect: () => goTo("stok", { ...outlet, search: product.name.slice(0, 100) }),
+                  onSelect: () => goTo("produk", { ...outlet, ...range, order: "terlaris" }),
                 }))}
               />
             </section>
@@ -15039,7 +15042,7 @@ Behaviour this task pins down (spec §5 Transaksi and Piutang):
 - **Tiles.** "Sisa piutang (laporan Qasir)", Pelanggan, Nota terbuka, Lewat jatuh tempo.
 - **Aging strip.** "Semua umur" plus one button per bucket (label, receivable, invoices · customers). A button toggles the `bucket` search param, which filters customers by `oldest_bucket`.
 - **Search and sort.** `SearchInput` filters loaded customers by name on the client. The sort chips (Lewat jatuh tempo · Nilai kredit terbesar · Nota terlama) set the `sort` search param. `bucket` and `sort` are view-only filters: they are added to `searchFromToolArgs("piutang", args, today)` and never reach the tool.
-- **Expansion.** DataTable (T9) has no controlled-expansion prop, so the expanded customer renders as a detail panel directly below the table. This deviates from spec §5 ("Row expand"); Step 13 records it in the spec.
+- **Expansion.** The spec requires the tool's `focus_customer_id` to start pre-expanded, but the customer table is virtualized to 560 px and that customer can sit far down a long list, where an inline expanded row would not render. The expanded customer therefore renders as a detail panel directly below the table, not as an inline row. This deviates from spec §5 ("Row expand"); Step 13 records it in the spec.
   - A row click opens or closes it, and an ▸/▾ indicator column shows which customer is open.
   - `focus_customer_id` starts open.
   - The customer table scrolls inside 560 px, so a panel opened from a long list could sit off-screen below it. A panel the user opens therefore calls `scrollIntoView({ block: "nearest" })` on mount. The pre-expanded `focus_customer_id` panel does not, so the view never scrolls the host page without a click.
@@ -16495,7 +16498,7 @@ with:
   - Row click expands the customer (▸/▾ indicator; the tool's `customer_id` starts expanded) and loads `customer_debt_detail`: phone, totals (Total · Dibayar · Sisa), per-invoice rows with payments, plus buttons:
     - "Lihat semua transaksi" (Transaksi, `customer_id`, last 365 days)
     - "Minta Claude buat pesan penagihan" (`sendMessage` with name, invoices, remaining; user-initiated)
-  - The expanded detail is a panel directly below the table, not an inline row, because DataTable has no controlled expansion. A panel the user opens scrolls into view (`scrollIntoView({ block: "nearest" })`); the pre-expanded one does not scroll.
+  - The expanded detail is a panel directly below the table, not an inline row, because the pre-expanded `focus_customer_id` customer can sit far down the virtualized 560 px list, where an inline row would not render. A panel the user opens scrolls into view (`scrollIntoView({ block: "nearest" })`); the pre-expanded one does not scroll.
 ````
 
 Run: `grep -c "The expanded detail is a panel directly below the table" docs/superpowers/specs/2026-09-15-mcp-app-widgets-design.md`
@@ -17175,6 +17178,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Modify: `docs/architecture/overview.md`
 - Modify: `docs/architecture/security.md`
 - Modify: `docs/architecture/setup.md`
+- Modify: `docs/architecture/operations.md` (health example version bump)
 - Modify: `package.json` (version `0.3.0`)
 - Modify: `src/widgets/bundled.ts` (regenerated: `package.json` is a bundle source-hash input)
 - Modify, working tree only and never staged: `README.md` (the owner has uncommitted edits in it)
@@ -17584,13 +17588,25 @@ with:
   "version": "0.3.0",
 ```
 
+In `docs/architecture/operations.md`, replace:
+
+```md
+# {"ok":true,"name":"manujujaya-mcp","version":"0.2.0","protocol":"2026-07-28","mutations":false}
+```
+
+with:
+
+```md
+# {"ok":true,"name":"manujujaya-mcp","version":"0.3.0","protocol":"2026-07-28","mutations":false}
+```
+
 Run: `bun run widgets:bundle && bun run test tests/unit/widgets-bundle.test.ts`
 Expected: `Wrote src/widgets/bundled.ts (… chars, source hash …)`, then the bundle test PASSES. Only `WIDGET_SOURCE_HASH` and the `mj-build` meta change in `bundled.ts`.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add docs/mcp-tools.md docs/architecture/overview.md docs/architecture/security.md docs/architecture/setup.md package.json src/widgets/bundled.ts
+git add docs/mcp-tools.md docs/architecture/overview.md docs/architecture/security.md docs/architecture/setup.md docs/architecture/operations.md package.json src/widgets/bundled.ts
 git commit -m "docs: widget tools, views, security notes and setup; release 0.3.0
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
@@ -17661,7 +17677,7 @@ Expected:
 - `coverage:validate`: `"ok": true`. `openapi:validate`: `{"ok":true,"paths":45,"operations":45}`.
 - `build`: wrangler prints `Total Upload: … KiB / gzip: … KiB`. Record both numbers in the hand-off note. For reference, the plan-time dry run with all six views (bundle about 785,000 characters) printed `Total Upload: 2758.00 KiB / gzip: 608.80 KiB`.
 
-Finally run `git status --short`. Expected: nothing staged, and only the owner's files plus `README.md` modified or untracked (`README.md`, `docs/install-prompts.md`, `GATES.md`, `docs/superpowers/plans/`, `manujujaya-mcp.pen`, `q.md`).
+Finally run `git status --short`. Expected: nothing staged, and only the owner's files plus `README.md` modified or untracked (`README.md`, `docs/install-prompts.md`, `GATES.md`, `manujujaya-mcp.pen`, `q.md`); `docs/superpowers/plans/` is already committed, so it does not appear.
 
 - [ ] **Step 11: Manual acceptance (owner, after deploy)**
 
