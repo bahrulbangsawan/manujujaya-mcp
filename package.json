@@ -7,7 +7,7 @@
     "dev": "wrangler dev",
     "deploy:dry-run": "wrangler deploy --dry-run --outdir=dist",
     "cf-typegen": "wrangler types",
-    "check-types": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
+    "check-types": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json && tsc --noEmit -p widgets/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
@@ -18,7 +18,12 @@
     "coverage:report": "bun run scripts/validate-coverage.ts --write-report",
     "e2e": "bun run scripts/e2e-mcp.ts",
     "e2e:live-login": "bun run scripts/e2e-live-login-products.ts",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "widgets:dev": "vite --config widgets/vite.config.ts",
+    "widgets:build": "vite build --config widgets/vite.config.ts",
+    "widgets:test": "vitest run --config widgets/vitest.config.ts",
+    "widgets:check-types": "tsc --noEmit -p widgets/tsconfig.json",
+    "widgets:bundle": "bun run scripts/bundle-widgets.ts"
   },
   "engines": {
     "node": ">=20"
@@ -33,8 +38,27 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260915.1",
     "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/ext-apps": "2.0.0",
+    "@tailwindcss/vite": "4.3.3",
+    "@tanstack/react-form": "1.33.5",
+    "@tanstack/react-pacer": "0.23.0",
+    "@tanstack/react-query": "5.102.8",
+    "@tanstack/react-router": "1.170.36",
+    "@tanstack/react-table": "9.2.4",
+    "@tanstack/react-virtual": "3.14.13",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "16.3.3",
     "@types/node": "^26.5.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "happy-dom": "20.14.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tailwindcss": "4.3.3",
     "typescript": "^7.0.2",
+    "vite": "8.3.0",
+    "vite-plugin-singlefile": "2.3.3",
     "vitest": "^5.0.0",
     "wrangler": "^4.131.2"
   }
