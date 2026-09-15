@@ -4,7 +4,8 @@
   "next_step": "select_merchant",
   "data": {
     "merchants": [
-      { "id": 1, "business_name": "Store A", "subdomain_url": "https://store-a.qasir.id" }
+      { "id": 1, "business_name": "Store A", "subdomain_url": "https://store-a.qasir.id" },
+      { "id": 621095, "business_name": "Bengkel Manuju Jaya", "subdomain_url": "https://bengkel-manuju-jaya-621095.qasir.id" }
     ]
   }
 }

@@ -2,7 +2,9 @@
 
 Hosted Worker UI to capture an unofficial Qasir dashboard session for MCP tools.
 
-**This is not official OAuth.** Qasir has no public API. Login is phone/email + 6-digit PIN → optional merchant/outlet/OTP pickers → `tokenWeb` redirect → dashboard session. The 32-char `API_TOKEN` used as Bearer is **not** `tokenWeb`. How `API_TOKEN` is minted after redirect is not fully documented — Connect scrapes common HTML/JS patterns and falls back to paste-from-DevTools.
+**This is not official OAuth.** Qasir has no public API. Login is phone/email + 6-digit PIN → optional outlet/OTP pickers → `tokenWeb` redirect → dashboard session. The 32-char `API_TOKEN` used as Bearer is **not** `tokenWeb`. How `API_TOKEN` is minted after redirect is not fully documented — Connect scrapes common HTML/JS patterns and falls back to paste-from-DevTools.
+
+**Merchant is fixed.** Connect always uses wrangler `MERCHANT_SLUG` (`bengkel-manuju-jaya-621095` / Manuju Jaya origin `https://bengkel-manuju-jaya-621095.qasir.id`). There is **no merchant picker** in the UI: if Qasir returns `select_merchant`, the Worker auto-continues with that store’s `merchant_id`. Accounts that do not include the configured merchant get an error.
 
 ## Routes
 
@@ -10,7 +12,7 @@ Hosted Worker UI to capture an unofficial Qasir dashboard session for MCP tools.
 | --- | --- | --- |
 | `GET` | `/connect` | Login + paste UI (or pending step UI) |
 | `POST` | `/connect/login` | Server-side sign-in per [`auth-login.md`](auth-login.md) |
-| `POST` | `/connect/select-merchant` | Continue after `next_step: select_merchant` |
+| `POST` | `/connect/select-merchant` | Legacy continue after `select_merchant` (auto-resolves via `MERCHANT_SLUG`; client `merchant_id` ignored unless it matches) |
 | `POST` | `/connect/select-outlet` | Continue after `next_step: select_outlet` (`outlet-select`) |
 | `POST` | `/connect/verify-otp` | Continue after `next_step: verify_otp` |
 | `POST` | `/connect/resend-otp` | Resend login OTP |
@@ -22,7 +24,7 @@ Hosted Worker UI to capture an unofficial Qasir dashboard session for MCP tools.
 
 Per [`auth-login.md`](auth-login.md), login may return:
 
-1. **`select_merchant`** — UI lists merchants; POST login again with `merchant_id` (pending DO holds cookies + short-TTL PIN).
+1. **`select_merchant`** — **auto-resolved** to `MERCHANT_SLUG` (Manuju Jaya); no picker. Worker re-POSTs login with `merchant_id`. Missing slug → error (not UI).
 2. **`select_outlet`** — UI lists outlets (locked outlets disabled); POST `/api/auth/outlet-select`.
 3. **`verify_otp`** — 4-digit code + resend; POST `/api/auth/login/otp-verify` / `resend-otp`.
 4. **`redirect`** — follow allowlisted `*.qasir.id` dashboard URL and scrape `API_TOKEN`.

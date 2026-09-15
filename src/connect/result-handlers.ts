@@ -89,7 +89,11 @@ export async function respondLoginResult(opts: {
         verify_key_present: Boolean(result.parsed.verifyKey),
       });
     }
-    return htmlResponse(connectPendingHtml(csrfToken, pending));
+    return htmlResponse(
+      connectPendingHtml(csrfToken, pending, undefined, {
+        merchantSlugConfigured: merchantSlugDefault,
+      }),
+    );
   }
 
   if (result.kind === "needs_paste") {

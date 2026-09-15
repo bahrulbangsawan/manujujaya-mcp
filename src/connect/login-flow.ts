@@ -32,6 +32,8 @@ export interface LoginFlowInput {
   timezone?: string;
   deviceType?: string;
   merchantId?: number;
+  /** Fixed merchant slug (MERCHANT_SLUG); auto-resolves select_merchant. */
+  preferredMerchantSlug?: string;
   fetchImpl?: typeof fetch;
 }
 
@@ -105,6 +107,7 @@ export async function runQasirLoginFlow(
     deviceType,
     timezone,
     merchantId: input.merchantId,
+    preferredMerchantSlug: input.preferredMerchantSlug,
     res: loginRes,
   });
 }

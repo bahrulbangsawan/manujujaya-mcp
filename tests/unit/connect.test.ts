@@ -2,7 +2,13 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { extractApiTokenFromHtml, extractCsrfFromHtml } from "../../src/connect/extract-token";
-import { parseLoginResponse, normalizeUsername, isValidPin } from "../../src/connect/login-parse";
+import {
+  parseLoginResponse,
+  normalizeUsername,
+  isValidPin,
+  matchConfiguredMerchant,
+  slugFromSubdomainUrl,
+} from "../../src/connect/login-parse";
 import { validatePasteInput } from "../../src/connect/paste";
 import {
   assertQasirRedirectUrl,
@@ -35,7 +41,50 @@ describe("login response parsing", () => {
       JSON.parse(load("login-select-merchant.json")),
     );
     expect(parsed.nextStep).toBe("select_merchant");
-    expect(parsed.merchants).toHaveLength(1);
+    expect(parsed.merchants).toHaveLength(2);
+  });
+
+  it("matchConfiguredMerchant picks Manuju Jaya slug among several", () => {
+    const merchants = parseLoginResponse(
+      JSON.parse(load("login-select-merchant.json")),
+    ).merchants!;
+    const match = matchConfiguredMerchant(
+      merchants,
+      "bengkel-manuju-jaya-621095",
+    );
+    expect(match.ok).toBe(true);
+    if (match.ok) {
+      expect(match.merchantId).toBe(621095);
+    }
+  });
+
+  it("matchConfiguredMerchant accepts URL with path and trailing slash", () => {
+    const match = matchConfiguredMerchant(
+      [
+        {
+          id: 9,
+          business_name: "MJ",
+          subdomain_url: "https://bengkel-manuju-jaya-621095.qasir.id/dashboard/",
+        },
+      ],
+      "bengkel-manuju-jaya-621095",
+    );
+    expect(match.ok).toBe(true);
+    if (match.ok) expect(match.merchantId).toBe(9);
+    expect(slugFromSubdomainUrl("https://bengkel-manuju-jaya-621095.qasir.id/")).toBe(
+      "bengkel-manuju-jaya-621095",
+    );
+  });
+
+  it("matchConfiguredMerchant errors when configured slug absent", () => {
+    const match = matchConfiguredMerchant(
+      [{ id: 1, business_name: "Other", subdomain_url: "https://store-a.qasir.id" }],
+      "bengkel-manuju-jaya-621095",
+    );
+    expect(match.ok).toBe(false);
+    if (!match.ok) {
+      expect(match.message.toLowerCase()).toMatch(/configured merchant|not found|allowed/);
+    }
   });
 
   it("parses failure", () => {
@@ -241,7 +290,55 @@ describe("login flow (mocked fetch, no live PIN)", () => {
     }
   });
 
-  it("returns next_step for select_merchant", async () => {
+  it("auto-continues select_merchant when preferred slug matches then scrapes redirect", async () => {
+    let loginPosts = 0;
+    const dashHtml = load("dashboard-with-token.html");
+    const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes("/sign-in")) {
+        return new Response(
+          '<meta name="csrf-token" content="www-csrf-token-value-here-xx">',
+          { status: 200 },
+        );
+      }
+      if (u.includes("device-language")) {
+        return new Response("{}", { status: 200 });
+      }
+      if (u.includes("/api/auth/login")) {
+        loginPosts += 1;
+        const body = init?.body ? JSON.parse(String(init.body)) : {};
+        if (loginPosts === 1) {
+          expect(body.merchant_id).toBeUndefined();
+          return new Response(load("login-select-merchant.json"), {
+            status: 200,
+          });
+        }
+        expect(body.merchant_id).toBe(621095);
+        return new Response(load("login-redirect.json"), { status: 200 });
+      }
+      if (u.includes("dashboard")) {
+        return new Response(dashHtml, {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return new Response("nope", { status: 404 });
+    });
+    const result = await runQasirLoginFlow({
+      username: "6281234567890",
+      pin: "123456",
+      preferredMerchantSlug: "bengkel-manuju-jaya-621095",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(loginPosts).toBe(2);
+    expect(result.kind).not.toBe("next_step");
+    expect(["connected", "needs_paste"]).toContain(result.kind);
+    if (result.kind === "connected") {
+      expect(result.merchantSlug).toBe("bengkel-manuju-jaya-621095");
+    }
+  });
+
+  it("errors on select_merchant when preferred slug is not in the list", async () => {
     const fetchImpl = vi.fn(async (url: string | URL | Request) => {
       const u = String(url);
       if (u.includes("/sign-in")) {
@@ -254,20 +351,37 @@ describe("login flow (mocked fetch, no live PIN)", () => {
         return new Response("{}", { status: 200 });
       }
       if (u.includes("/api/auth/login")) {
-        return new Response(load("login-select-merchant.json"), {
-          status: 200,
-        });
+        return new Response(
+          JSON.stringify({
+            status: 1,
+            message: "",
+            next_step: "select_merchant",
+            data: {
+              merchants: [
+                {
+                  id: 1,
+                  business_name: "Wrong Store",
+                  subdomain_url: "https://store-a.qasir.id",
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        );
       }
       return new Response("nope", { status: 404 });
     });
     const result = await runQasirLoginFlow({
       username: "6281234567890",
       pin: "123456",
+      preferredMerchantSlug: "bengkel-manuju-jaya-621095",
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
-    expect(result.kind).toBe("next_step");
-    if (result.kind === "next_step") {
-      expect(result.step).toBe("select_merchant");
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") {
+      expect(result.message.toLowerCase()).toMatch(
+        /configured merchant|not found|allowed/,
+      );
     }
   });
 });

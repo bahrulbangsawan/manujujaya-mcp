@@ -122,7 +122,17 @@ export function connectPasteNeededHtml(opts: {
 export function connectSelectMerchantHtml(opts: {
   csrfToken: string;
   merchants: PendingMerchant[];
+  /** When set (MERCHANT_SLUG), picker is disabled — show error only. */
+  merchantSlugConfigured?: string;
 }): string {
+  if (opts.merchantSlugConfigured) {
+    return connectErrorHtml({
+      csrfToken: opts.csrfToken,
+      message:
+        `Merchant is fixed to ${opts.merchantSlugConfigured} (Manuju Jaya). ` +
+        `Picker is disabled — retry login; Connect auto-selects the configured store.`,
+    });
+  }
   const choices = opts.merchants
     .map(
       (m) => `<form method="POST" action="/connect/select-merchant">
@@ -223,11 +233,13 @@ export function connectPendingHtml(
   csrfToken: string,
   pending: PendingAuthState,
   message?: string,
+  opts?: { merchantSlugConfigured?: string },
 ): string {
   if (pending.step === "select_merchant") {
     return connectSelectMerchantHtml({
       csrfToken,
       merchants: pending.merchants ?? [],
+      merchantSlugConfigured: opts?.merchantSlugConfigured,
     });
   }
   if (pending.step === "select_outlet") {
