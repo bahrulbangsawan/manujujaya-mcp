@@ -17,6 +17,8 @@ interface Env {
   MERCHANT_SLUG: string;
   DEFAULT_OUTLET_ID: string;
   ENABLE_MUTATIONS: string;
+  /** "false" removes the MCP App widget tools and ui:// views; any other value (default "true") serves them. */
+  ENABLE_WIDGETS: string;
   ALLOW_DEV_PSK: string;
   REQUIRE_SESSION_ENCRYPTION: string;
   /** "reject" (default, 2026-07-28 only) or "stateless" (also serve 2025-era clients). */

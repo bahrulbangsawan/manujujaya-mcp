@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { AuthPrincipal } from "../../src/auth/verify";
 import { createManujujayaServer } from "../../src/mcp/server";
 import { DOC_NAMES } from "../../src/mcp/resources";
+import { WIDGET_HTML } from "../../src/widgets/bundled";
+import { APP_TOOL, MCP_APP_MIME_TYPE, VIEW_MARKER, VIEW_TOOL, VIEWS, viewResourceUri } from "../../src/widgets/contract";
+import { renderViewHtml } from "../../src/widgets/resources";
 import {
   createApprovalsHarness,
   createFakeDispatcher,
@@ -17,7 +20,15 @@ import { MODERN_VERSION, readWire, rpcMessage, rpcRequest, type WireOptions } fr
 interface Setup {
   mutations?: boolean;
   principal?: AuthPrincipal;
+  /** ENABLE_WIDGETS; omitted means the env var is unset (widgets on). */
+  widgets?: boolean;
+  /** Serve the committed WIDGET_HTML instead of the tiny test page. */
+  bundledHtml?: boolean;
 }
+
+/** Stand-in for the SPA bundle: the ui:// views only need the data-view marker. */
+const TEST_WIDGET_HTML = `<!doctype html><html><head><title>widget</title></head><body><div id="root" data-view="${VIEW_MARKER}"></div></body></html>`;
+const WIDGET_TOOL_ORDER = [...VIEWS.map((view) => VIEW_TOOL[view]), ...Object.values(APP_TOOL)];
 
 /** The production server factory behind the Agents SDK stateless handler, legacy rejected. */
 function handlerFor(setup: Setup = {}) {
@@ -25,12 +36,17 @@ function handlerFor(setup: Setup = {}) {
   return createMcpHandler(
     () =>
       createManujujayaServer({
-        env: testEnv({ LOADER: createFakeWorkerLoader(), ENABLE_MUTATIONS: setup.mutations ? "true" : "false" }),
+        env: testEnv({
+          LOADER: createFakeWorkerLoader(),
+          ENABLE_MUTATIONS: setup.mutations ? "true" : "false",
+          ...(setup.widgets === undefined ? {} : { ENABLE_WIDGETS: setup.widgets ? "true" : "false" }),
+        }),
         sessions: unusedSessions,
         principal: setup.principal ?? readPrincipal,
         readDoc: async (name) => `# ${name}\n\nSample phone 081234567890.`,
         dispatcher: createFakeDispatcher({}),
         approvals: approvals.stub,
+        ...(setup.bundledHtml ? {} : { widgetHtml: TEST_WIDGET_HTML }),
       }),
     { route: "/mcp", legacy: "reject" },
   );
@@ -40,7 +56,15 @@ async function call(method: string, params: Record<string, unknown> = {}, option
   return readWire(await handlerFor(setup).fetch(rpcRequest(method, params, options)));
 }
 
-type ToolInfo = { name: string; title?: string; description?: string; annotations?: Record<string, unknown>; inputSchema: { required?: string[] } };
+type ToolInfo = {
+  name: string;
+  title?: string;
+  description?: string;
+  annotations?: Record<string, unknown>;
+  inputSchema: { required?: string[] };
+  outputSchema?: unknown;
+  _meta?: Record<string, unknown>;
+};
 
 describe("2026-07-28 negotiation", () => {
   it("server/discover advertises only 2026-07-28 and no list-changed notifications", async () => {
@@ -107,19 +131,50 @@ describe("2026-07-28 negotiation", () => {
 });
 
 describe("tools", () => {
-  it("read-only callers see search and execute with read-only annotations", async () => {
+  it("read-only callers see search and execute with read-only annotations, then the widget tools", async () => {
     const tools = (await call("tools/list")).body.result!.tools as ToolInfo[];
-    expect(tools.map((t) => t.name)).toEqual(["search", "execute"]);
+    expect(tools.map((t) => t.name)).toEqual(["search", "execute", ...WIDGET_TOOL_ORDER]);
     const [search, execute] = tools;
     expect(search!.title).toBeTruthy();
     expect(search!.annotations).toEqual({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
     expect(execute!.annotations).toEqual({ readOnlyHint: true, destructiveHint: false, openWorldHint: true });
-    for (const tool of tools) {
+    for (const tool of [search!, execute!]) {
       expect(tool.description!.length).toBeLessThanOrEqual(600);
       expect(tool.description).toContain("Qasir POS dashboard API");
       expect(tool.description).toContain("Example:");
       expect(tool.inputSchema.required).toEqual(["code"]);
     }
+  });
+
+  it("view tools link their ui:// view and app-only tools are hidden from the model", async () => {
+    const tools = (await call("tools/list")).body.result!.tools as ToolInfo[];
+    const byName = new Map(tools.map((t) => [t.name, t]));
+    const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
+    for (const view of VIEWS) {
+      const tool = byName.get(VIEW_TOOL[view])!;
+      expect(tool.title, tool.name).toBeTruthy();
+      expect(tool.description!.startsWith("Open an interactive"), tool.name).toBe(true);
+      expect(tool.description!.length, tool.name).toBeLessThanOrEqual(600);
+      expect(tool._meta).toEqual({ ui: { resourceUri: viewResourceUri(view) }, "ui/resourceUri": viewResourceUri(view) });
+      expect(tool.annotations).toEqual(readOnly);
+      expect(tool.outputSchema).toBeUndefined();
+    }
+    for (const name of Object.values(APP_TOOL)) {
+      const tool = byName.get(name)!;
+      expect(tool.title, name).toBeTruthy();
+      expect(tool.description!.startsWith("Widget helper:"), name).toBe(true);
+      expect(tool.description!.length, name).toBeLessThanOrEqual(300);
+      expect(tool._meta).toEqual({ ui: { visibility: ["app"] } });
+      expect(tool.annotations).toEqual(readOnly);
+      expect(tool.outputSchema).toBeUndefined();
+    }
+  });
+
+  it("ENABLE_WIDGETS=false serves only search and execute", async () => {
+    const tools = (await call("tools/list", {}, {}, { widgets: false })).body.result!.tools as ToolInfo[];
+    expect(tools.map((t) => t.name)).toEqual(["search", "execute"]);
+    const res = await call("tools/call", { name: "show_customer_debts", arguments: {} }, {}, { widgets: false });
+    expect(res.body.error?.code).toBe(-32602);
   });
 
   it("execute_mutation is listed only with ENABLE_MUTATIONS=true and qasir:write", async () => {
@@ -160,14 +215,29 @@ describe("tools", () => {
 });
 
 describe("resources", () => {
-  it("lists the static resources plus every document from the template", async () => {
-    const resources = (await call("resources/list")).body.result!.resources as Array<{ uri: string }>;
+  it("lists the static resources, every document from the template and the six ui:// views", async () => {
+    const resources = (await call("resources/list")).body.result!.resources as Array<{
+      uri: string;
+      name: string;
+      mimeType?: string;
+      _meta?: Record<string, unknown>;
+    }>;
     const uris = resources.map((r) => r.uri);
     expect(uris).toEqual(
       expect.arrayContaining(["qasir://docs/index", "qasir://openapi", "qasir://capabilities", "qasir://coverage"]),
     );
     for (const name of DOC_NAMES) expect(uris).toContain(`qasir://docs/${name}`);
-    expect(uris).toHaveLength(4 + DOC_NAMES.length);
+    for (const view of VIEWS) {
+      const listed = resources.find((r) => r.uri === viewResourceUri(view));
+      expect(listed, view).toMatchObject({ name: `view-${view}`, mimeType: MCP_APP_MIME_TYPE, _meta: { ui: { prefersBorder: true } } });
+    }
+    expect(uris).toHaveLength(4 + DOC_NAMES.length + VIEWS.length);
+  });
+
+  it("ENABLE_WIDGETS=false lists no ui:// resources", async () => {
+    const resources = (await call("resources/list", {}, {}, { widgets: false })).body.result!.resources as Array<{ uri: string }>;
+    expect(resources.filter((r) => r.uri.startsWith("ui://"))).toEqual([]);
+    expect(resources).toHaveLength(4 + DOC_NAMES.length);
   });
 
   it("lists the qasir://docs/{document} template", async () => {
@@ -180,18 +250,46 @@ describe("resources", () => {
     for (const { uri } of resources) {
       const res = await call("resources/read", { uri });
       expect(res.body.error, uri).toBeUndefined();
-      const contents = res.body.result!.contents as Array<{ uri: string; text: string }>;
+      const contents = res.body.result!.contents as Array<{ uri: string; text: string; mimeType?: string }>;
       expect(contents).toHaveLength(1);
       expect(contents[0]!.uri).toBe(uri);
       expect(contents[0]!.text.length).toBeGreaterThan(0);
+      if (uri.startsWith("ui://")) expect(contents[0]!.mimeType, uri).toBe(MCP_APP_MIME_TYPE);
       if (uri.startsWith("qasir://docs/") && uri !== "qasir://docs/index") {
         expect(contents[0]!.text).not.toContain("081234567890");
       }
     }
   });
 
+  it("reads each ui:// view as MCP App HTML carrying its own data-view", async () => {
+    for (const view of VIEWS) {
+      const uri = viewResourceUri(view);
+      const res = await call("resources/read", { uri });
+      expect(res.body.error, uri).toBeUndefined();
+      const result = res.body.result!;
+      const contents = result.contents as Array<{ uri: string; mimeType: string; text: string; _meta?: Record<string, unknown> }>;
+      expect(contents).toEqual([
+        {
+          uri,
+          mimeType: MCP_APP_MIME_TYPE,
+          text: TEST_WIDGET_HTML.replace(VIEW_MARKER, view),
+          _meta: { ui: { prefersBorder: true } },
+        },
+      ]);
+      expect(contents[0]!.text).toContain(`data-view="${view}"`);
+      expect(result.ttlMs).toBe(600_000);
+    }
+  });
+
+  it("serves the committed widget bundle when no HTML is injected", async () => {
+    const res = await call("resources/read", { uri: viewResourceUri("piutang") }, {}, { bundledHtml: true });
+    const contents = res.body.result!.contents as Array<{ text: string }>;
+    expect(contents[0]!.text).toBe(renderViewHtml(WIDGET_HTML, "piutang"));
+    expect(contents[0]!.text).not.toContain(VIEW_MARKER);
+  });
+
   it("returns resource-not-found for unknown documents", async () => {
-    for (const uri of ["qasir://docs/nope", "qasir://docs/..%2Fsecrets", "qasir://unknown"]) {
+    for (const uri of ["qasir://docs/nope", "qasir://docs/..%2Fsecrets", "qasir://unknown", "ui://manujujaya/unknown.html"]) {
       const res = await call("resources/read", { uri });
       expect(res.body.error?.code, uri).toBe(-32602);
       expect(res.body.error?.data).toEqual({ uri });

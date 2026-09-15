@@ -9,6 +9,9 @@ import { createSpecBundle } from "../codemode/spec";
 import { QasirDispatcher } from "../dispatcher/qasir-dispatcher";
 import { log } from "../observability/log";
 import type { QasirSessionProvider } from "../session/types";
+import { WIDGET_HTML } from "../widgets/bundled";
+import { registerWidgetResources } from "../widgets/resources";
+import { registerWidgetTools } from "../widgets/tools";
 import { EXECUTE_MUTATION_TOOL, executeMutationInput, runExecuteMutation } from "./mutation-tool";
 import { registerPrompts } from "./prompts";
 import { registerResources } from "./resources";
@@ -25,6 +28,10 @@ export interface ServerDeps {
   dispatcher?: CodemodeDispatcher;
   /** Overrides for Code Mode limits (tests). */
   limits?: Partial<CodemodeLimits>;
+  /** MCP App SPA served by the ui:// views; defaults to the committed bundle (tests pass a tiny page). */
+  widgetHtml?: string;
+  /** Clock for widget tools (tests). */
+  now?: () => Date;
 }
 
 const codeInput = z.object({
@@ -158,10 +165,26 @@ export function createManujujayaServer(deps: ServerDeps): McpServer {
     tools.push(EXECUTE_MUTATION_TOOL);
   }
 
+  // MCP App views: registered for every caller (client UI support is only known per request, after
+  // this factory runs); ENABLE_WIDGETS=false switches them off. Every tool also returns useful text.
+  const widgetsEnabled = deps.env.ENABLE_WIDGETS !== "false";
+  if (widgetsEnabled) {
+    tools.push(
+      ...registerWidgetTools(server, {
+        env: deps.env,
+        principal: deps.principal,
+        sessions: deps.sessions,
+        dispatcher,
+        ...(deps.now ? { now: deps.now } : {}),
+      }),
+    );
+    registerWidgetResources(server, deps.widgetHtml ?? WIDGET_HTML);
+  }
+
   registerResources(server, {
     merchantSlug,
     readDoc: deps.readDoc,
-    capabilities: { tools, mutationsEnabled, limits },
+    capabilities: { tools, mutationsEnabled, limits, widgetsEnabled },
   });
   registerPrompts(server);
 

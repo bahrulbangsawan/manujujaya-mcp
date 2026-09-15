@@ -6,6 +6,7 @@ import { API_DOC_NAMES } from "../registry/doc-endpoints";
 import { buildOpenApiDocument } from "../registry/openapi";
 import { listExposedOperations } from "../registry/operations";
 import { sanitizeDocMarkdown } from "../observability/redact";
+import { VIEWS, viewResourceUri } from "../widgets/contract";
 
 /** Sanitized API docs served under qasir://docs/{document}. */
 export const DOC_NAMES: readonly string[] = API_DOC_NAMES;
@@ -18,6 +19,8 @@ export interface CapabilitiesInfo {
   tools: string[];
   mutationsEnabled: boolean;
   limits: CodemodeLimits;
+  /** Whether the MCP App widget tools and ui:// views are registered (ENABLE_WIDGETS). */
+  widgetsEnabled: boolean;
 }
 
 function docUri(name: string): string {
@@ -105,6 +108,11 @@ function capabilitiesPayload(info: CapabilitiesInfo): Record<string, unknown> {
       maxResponseChars: info.limits.maxResponseChars,
       maxOutputChars: info.limits.maxOutputTokens * 4,
       network: "none except codemode.request() by operationId",
+    },
+    widgets: {
+      enabled: info.widgetsEnabled,
+      views: info.widgetsEnabled ? [...VIEWS] : [],
+      resourceUris: info.widgetsEnabled ? VIEWS.map(viewResourceUri) : [],
     },
   };
 }

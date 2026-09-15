@@ -39,11 +39,12 @@
     "MERCHANT_SLUG": "bengkel-manuju-jaya-621095",
     "DEFAULT_OUTLET_ID": "645203",
     "ENABLE_MUTATIONS": "false",
+    "ENABLE_WIDGETS": "true",
     "ALLOW_DEV_PSK": "false",
     "REQUIRE_SESSION_ENCRYPTION": "true",
     "MCP_LEGACY_MODE": "reject",
     "MCP_SERVER_NAME": "manujujaya-mcp",
-    "MCP_SERVER_VERSION": "0.2.0"
+    "MCP_SERVER_VERSION": "0.3.0"
   }
   // Secrets (wrangler secret put): OWNER_PASSWORD, SESSION_ENCRYPTION_KEY
   // Optional bootstrap secrets: QASIR_API_TOKEN, QASIR_CSRF_TOKEN, QASIR_COOKIE
