@@ -363,3 +363,168 @@ describe("CompositeQasirSessionProvider", () => {
     expect(s.source).toBe("static");
   });
 });
+
+describe("multi-step auth continuations (mocked, no live PIN)", () => {
+  const pendingBase = {
+    username: "6281234567890",
+    pin: "123456",
+    deviceId: "device-uuid",
+    deviceType: "Chrome 150 · macOS",
+    timezone: "Asia/Makassar",
+    cookieJar: "laravel-session=abc; qasir_device_id=device-uuid",
+    csrfToken: "www-csrf-token-value-here-xx",
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 600_000,
+  };
+
+  it("parses select_outlet and verify_otp fixtures", () => {
+    const outlet = parseLoginResponse(JSON.parse(load("login-select-outlet.json")));
+    expect(outlet.nextStep).toBe("select_outlet");
+    expect(outlet.outlets).toHaveLength(2);
+    expect(outlet.merchantId).toBe(42);
+
+    const otp = parseLoginResponse(JSON.parse(load("login-verify-otp.json")));
+    expect(otp.nextStep).toBe("verify_otp");
+    expect(otp.mobile).toBe("6281234567890");
+    expect(otp.verifyKey).toBeTruthy();
+  });
+
+  it("parses outlet-select token_web success as redirect", () => {
+    const parsed = parseLoginResponse(
+      JSON.parse(load("outlet-select-success.json")),
+    );
+    expect(parsed.ok).toBe(true);
+    expect(parsed.nextStep).toBe("redirect");
+    expect(parsed.redirectUrl).toContain("bengkel-manuju-jaya-621095.qasir.id");
+    expect(parsed.redirectUrl).toContain("tokenWeb=");
+  });
+
+  it("continueWithMerchant posts login with merchant_id then connects", async () => {
+    const { continueWithMerchant } = await import("../../src/connect/login-flow");
+    const dashHtml = load("dashboard-with-token.html");
+    const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes("/api/auth/login")) {
+        const body = JSON.parse(String(init?.body ?? "{}"));
+        expect(body.merchant_id).toBe(1);
+        expect(body.password).toBe("123456");
+        return new Response(load("login-redirect.json"), { status: 200 });
+      }
+      if (u.includes("dashboard")) {
+        return new Response(dashHtml, { status: 200 });
+      }
+      return new Response("nope", { status: 404 });
+    });
+    const result = await continueWithMerchant({
+      pending: {
+        ...pendingBase,
+        step: "select_merchant",
+        merchants: [{ id: 1, business_name: "Store A" }],
+      },
+      merchantId: 1,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.kind).toBe("connected");
+  });
+
+  it("continueWithOutlet uses outlet-select and scrapes token", async () => {
+    const { continueWithOutlet } = await import("../../src/connect/login-flow");
+    const dashHtml = load("dashboard-with-token.html");
+    const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes("outlet-select")) {
+        const body = JSON.parse(String(init?.body ?? "{}"));
+        expect(body.outlet_id).toBe(645203);
+        expect(body.merchant_id).toBe(42);
+        return new Response(load("outlet-select-success.json"), { status: 200 });
+      }
+      if (u.includes("dashboard")) {
+        return new Response(dashHtml, { status: 200 });
+      }
+      return new Response("nope", { status: 404 });
+    });
+    const result = await continueWithOutlet({
+      pending: {
+        ...pendingBase,
+        step: "select_outlet",
+        merchantId: 42,
+        outlets: [
+          { id: 645203, name: "Utama", is_lock: false },
+          { id: 645299, name: "Gudang", is_lock: true },
+        ],
+      },
+      outletId: 645203,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.kind).toBe("connected");
+    if (result.kind === "connected") {
+      expect(result.outletId).toBe("645203");
+    }
+  });
+
+  it("rejects locked outlet", async () => {
+    const { continueWithOutlet } = await import("../../src/connect/login-flow");
+    const result = await continueWithOutlet({
+      pending: {
+        ...pendingBase,
+        step: "select_outlet",
+        merchantId: 42,
+        outlets: [{ id: 645299, name: "Gudang", is_lock: true }],
+      },
+      outletId: 645299,
+      fetchImpl: vi.fn() as unknown as typeof fetch,
+    });
+    expect(result.kind).toBe("error");
+  });
+
+  it("continueWithOtp verifies and redirects", async () => {
+    const { continueWithOtp } = await import("../../src/connect/login-flow");
+    const dashHtml = load("dashboard-with-token.html");
+    const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes("otp-verify")) {
+        const body = JSON.parse(String(init?.body ?? "{}"));
+        expect(body.code).toBe("1234");
+        expect(body.verify_key).toBe("verify-key-fixture-not-secret");
+        return new Response(load("otp-verify-redirect.json"), { status: 200 });
+      }
+      if (u.includes("dashboard")) {
+        return new Response(dashHtml, { status: 200 });
+      }
+      return new Response("nope", { status: 404 });
+    });
+    const result = await continueWithOtp({
+      pending: {
+        ...pendingBase,
+        step: "verify_otp",
+        mobile: "6281234567890",
+        merchantId: 42,
+        verifyKey: "verify-key-fixture-not-secret",
+      },
+      code: "1234",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.kind).toBe("connected");
+  });
+
+  it("resendOtp posts allowlisted host", async () => {
+    const { resendOtp } = await import("../../src/connect/login-flow");
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+      expect(String(url)).toBe(
+        "https://www.qasir.id/api/auth/login/resend-otp",
+      );
+      return new Response(load("resend-otp-ok.json"), { status: 200 });
+    });
+    const out = await resendOtp({
+      pending: {
+        ...pendingBase,
+        step: "verify_otp",
+        mobile: "6281234567890",
+        merchantId: 42,
+        verifyKey: "k",
+      },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(out.ok).toBe(true);
+  });
+});

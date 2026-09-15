@@ -5,7 +5,6 @@ import {
   sessionsDoForSubject,
   StaticQasirSessionProvider,
 } from "../session/qasir-session";
-import type { QasirSessionsDO } from "../session/qasir-sessions-do";
 import { maskTokenPrefix } from "../session/types";
 import {
   assertFormCsrf,
@@ -16,13 +15,25 @@ import {
 import {
   connectErrorHtml,
   connectLoginPage,
-  connectNextStepHtml,
-  connectPasteNeededHtml,
+  connectPendingHtml,
   connectSuccessHtml,
+  connectVerifyOtpHtml,
   htmlResponse,
 } from "./html";
-import { runQasirLoginFlow } from "./login-flow";
+import {
+  continueWithMerchant,
+  continueWithOutlet,
+  continueWithOtp,
+  resendOtp,
+  runQasirLoginFlow,
+} from "./login-flow";
 import { validatePasteInput } from "./paste";
+import {
+  mapConnectError,
+  readBody,
+  respondLoginResult,
+  wantsJson,
+} from "./result-handlers";
 
 export interface ConnectEnv extends ConnectGateEnv {
   MERCHANT_SLUG: string;
@@ -31,36 +42,6 @@ export interface ConnectEnv extends ConnectGateEnv {
   QASIR_CSRF_TOKEN?: string;
   QASIR_COOKIE?: string;
   QASIR_SESSIONS: DurableObjectNamespace;
-}
-
-function wantsJson(request: Request): boolean {
-  const accept = request.headers.get("accept") ?? "";
-  const ct = request.headers.get("content-type") ?? "";
-  return (
-    accept.includes("application/json") ||
-    ct.includes("application/json") ||
-    new URL(request.url).searchParams.get("format") === "json"
-  );
-}
-
-async function readBody(
-  request: Request,
-): Promise<Record<string, string>> {
-  const ct = request.headers.get("content-type") ?? "";
-  if (ct.includes("application/json")) {
-    const json = (await request.json()) as Record<string, unknown>;
-    const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(json)) {
-      if (v != null) out[k] = String(v);
-    }
-    return out;
-  }
-  const fd = await request.formData();
-  const out: Record<string, string> = {};
-  for (const [k, v] of fd.entries()) {
-    if (typeof v === "string") out[k] = v;
-  }
-  return out;
 }
 
 function clientKey(request: Request, username?: string): string {
@@ -94,6 +75,12 @@ export async function handleConnectRoutes(
 
   try {
     if (request.method === "GET" && url.pathname === "/connect") {
+      const pending = await doStub.getPending();
+      if (pending) {
+        return respond(
+          htmlResponse(connectPendingHtml(identity.csrfToken, pending)),
+        );
+      }
       return respond(
         htmlResponse(connectLoginPage({ csrfToken: identity.csrfToken })),
       );
@@ -129,8 +116,8 @@ export async function handleConnectRoutes(
           outletId,
           connectedAt,
           source,
+          pendingStep: doStatus.pendingStep,
           subject: identity.subject,
-          // never raw secrets
         }),
       );
     }
@@ -138,7 +125,6 @@ export async function handleConnectRoutes(
     if (request.method === "POST" && url.pathname === "/connect/login") {
       const body = await readBody(request);
       assertFormCsrf(identity, body.csrf);
-
       const rate = await doStub.checkRateLimit({
         key: clientKey(request, body.username),
       });
@@ -159,13 +145,10 @@ export async function handleConnectRoutes(
           ),
         );
       }
-
       log("info", "connect.login.start", {
         subject: identity.subject,
-        // never log PIN or username in full — hash-ish only
         usernameLen: (body.username ?? "").length,
       });
-
       const result = await runQasirLoginFlow({
         username: body.username ?? "",
         pin: body.pin ?? "",
@@ -173,116 +156,131 @@ export async function handleConnectRoutes(
         deviceType: body.deviceType,
         merchantId: body.merchantId ? Number(body.merchantId) : undefined,
       });
+      return respond(
+        await respondLoginResult({
+          request,
+          result,
+          doStub,
+          subject: identity.subject,
+          csrfToken: identity.csrfToken,
+          merchantSlugDefault: env.MERCHANT_SLUG,
+          outletIdDefault: env.DEFAULT_OUTLET_ID,
+        }),
+      );
+    }
 
-      if (result.kind === "error") {
-        if (wantsJson(request)) {
-          return respond(
-            Response.json(
-              { code: ErrorCodes.UNAUTHORIZED, message: result.message },
-              { status: 401 },
-            ),
-          );
-        }
-        return respond(
-          htmlResponse(
-            connectErrorHtml({
-              csrfToken: identity.csrfToken,
-              message: result.message,
-            }),
-            401,
-          ),
+    if (
+      request.method === "POST" &&
+      url.pathname === "/connect/select-merchant"
+    ) {
+      const body = await readBody(request);
+      assertFormCsrf(identity, body.csrf);
+      const pending = await doStub.getPending();
+      if (!pending || pending.step !== "select_merchant") {
+        throw new AppError(
+          ErrorCodes.INVALID_INPUT,
+          "No pending select_merchant step",
         );
       }
-
-      if (result.kind === "next_step") {
-        const detail = JSON.stringify(
-          {
-            next_step: result.step,
-            merchants: result.parsed.merchants,
-            outlets: result.parsed.outlets,
-            merchant: result.parsed.merchant,
-            mobile: result.parsed.mobile,
-            merchant_id: result.parsed.merchantId,
-            // omit verify_key from HTML? keep for OTP stub — it's not PIN
-            verify_key_present: Boolean(result.parsed.verifyKey),
-          },
-          null,
-          2,
-        );
-        if (wantsJson(request)) {
-          return respond(
-            Response.json({
-              next_step: result.step,
-              data: result.parsed,
-              message: "Additional step required; use Qasir UI or paste fallback",
-            }),
-          );
-        }
-        return respond(
-          htmlResponse(
-            connectNextStepHtml({
-              csrfToken: identity.csrfToken,
-              step: result.step,
-              detail,
-            }),
-          ),
-        );
-      }
-
-      if (result.kind === "needs_paste") {
-        if (wantsJson(request)) {
-          return respond(
-            Response.json({
-              needs_paste: true,
-              merchantSlug: result.merchantSlug,
-              reason: result.reason,
-            }),
-          );
-        }
-        return respond(
-          htmlResponse(
-            connectPasteNeededHtml({
-              csrfToken: identity.csrfToken,
-              merchantSlug: result.merchantSlug,
-              reason: result.reason,
-            }),
-          ),
-        );
-      }
-
-      // connected
-      await doStub.saveSession({
-        apiToken: result.apiToken,
-        csrfToken: result.csrfToken,
-        cookieJar: result.cookieJar,
-        merchantSlug: result.merchantSlug || env.MERCHANT_SLUG,
-        outletId: env.DEFAULT_OUTLET_ID,
-        deviceId: result.deviceId,
-        subject: identity.subject,
+      const result = await continueWithMerchant({
+        pending,
+        merchantId: Number(body.merchantId),
       });
-      log("info", "connect.login.success", {
-        subject: identity.subject,
-        merchantSlug: result.merchantSlug,
-        tokenPrefix: maskTokenPrefix(result.apiToken),
-      });
+      return respond(
+        await respondLoginResult({
+          request,
+          result,
+          doStub,
+          subject: identity.subject,
+          csrfToken: identity.csrfToken,
+          merchantSlugDefault: env.MERCHANT_SLUG,
+          outletIdDefault: env.DEFAULT_OUTLET_ID,
+        }),
+      );
+    }
 
+    if (request.method === "POST" && url.pathname === "/connect/select-outlet") {
+      const body = await readBody(request);
+      assertFormCsrf(identity, body.csrf);
+      const pending = await doStub.getPending();
+      if (!pending || pending.step !== "select_outlet") {
+        throw new AppError(
+          ErrorCodes.INVALID_INPUT,
+          "No pending select_outlet step",
+        );
+      }
+      const result = await continueWithOutlet({
+        pending,
+        outletId: Number(body.outletId),
+        merchantId: body.merchantId ? Number(body.merchantId) : undefined,
+      });
+      return respond(
+        await respondLoginResult({
+          request,
+          result,
+          doStub,
+          subject: identity.subject,
+          csrfToken: identity.csrfToken,
+          merchantSlugDefault: env.MERCHANT_SLUG,
+          outletIdDefault: env.DEFAULT_OUTLET_ID,
+        }),
+      );
+    }
+
+    if (request.method === "POST" && url.pathname === "/connect/verify-otp") {
+      const body = await readBody(request);
+      assertFormCsrf(identity, body.csrf);
+      const pending = await doStub.getPending();
+      if (!pending || pending.step !== "verify_otp") {
+        throw new AppError(
+          ErrorCodes.INVALID_INPUT,
+          "No pending verify_otp step",
+        );
+      }
+      const result = await continueWithOtp({
+        pending,
+        code: body.code ?? "",
+      });
+      return respond(
+        await respondLoginResult({
+          request,
+          result,
+          doStub,
+          subject: identity.subject,
+          csrfToken: identity.csrfToken,
+          merchantSlugDefault: env.MERCHANT_SLUG,
+          outletIdDefault: env.DEFAULT_OUTLET_ID,
+        }),
+      );
+    }
+
+    if (request.method === "POST" && url.pathname === "/connect/resend-otp") {
+      const body = await readBody(request);
+      assertFormCsrf(identity, body.csrf);
+      const pending = await doStub.getPending();
+      if (!pending || pending.step !== "verify_otp") {
+        throw new AppError(
+          ErrorCodes.INVALID_INPUT,
+          "No pending verify_otp step",
+        );
+      }
+      const out = await resendOtp({ pending });
+      if (out.cookieJar !== pending.cookieJar) {
+        await doStub.savePending({ ...pending, cookieJar: out.cookieJar });
+      }
       if (wantsJson(request)) {
         return respond(
-          Response.json({
-            connected: true,
-            merchantSlug: result.merchantSlug,
-            apiTokenPrefix: maskTokenPrefix(result.apiToken),
-          }),
+          Response.json({ ok: out.ok, message: out.message }, { status: out.ok ? 200 : 400 }),
         );
       }
       return respond(
         htmlResponse(
-          connectSuccessHtml({
+          connectVerifyOtpHtml({
             csrfToken: identity.csrfToken,
-            merchantSlug: result.merchantSlug,
-            tokenPrefix: maskTokenPrefix(result.apiToken),
-            via: "login",
+            mobile: pending.mobile,
+            message: out.message,
           }),
+          out.ok ? 200 : 400,
         ),
       );
     }
@@ -336,6 +334,7 @@ export async function handleConnectRoutes(
       const body = await readBody(request);
       assertFormCsrf(identity, body.csrf);
       await doStub.clear();
+      await doStub.clearPending();
       log("info", "connect.disconnect", { subject: identity.subject });
       if (wantsJson(request)) {
         return respond(Response.json({ connected: false }));
@@ -353,24 +352,7 @@ export async function handleConnectRoutes(
 
     return respond(new Response("Not Found", { status: 404 }));
   } catch (err) {
-    if (err instanceof AppError) {
-      if (wantsJson(request)) {
-        return respond(Response.json(err.toJSON(), { status: err.status }));
-      }
-      return respond(
-        htmlResponse(
-          connectErrorHtml({
-            csrfToken: identity.csrfToken,
-            message: err.message,
-          }),
-          err.status,
-        ),
-      );
-    }
-    log("error", "connect.unhandled", {
-      err: err instanceof Error ? err.message : String(err),
-    });
-    return respond(new Response("Internal Error", { status: 500 }));
+    return respond(mapConnectError(request, identity.csrfToken, err));
   }
 }
 

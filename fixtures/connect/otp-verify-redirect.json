@@ -1,0 +1,8 @@
+{
+  "status": 1,
+  "message": "",
+  "next_step": "redirect",
+  "data": {
+    "redirect_url": "https://bengkel-manuju-jaya-621095.qasir.id/dashboard?tokenWeb=otpTokenWebFixture"
+  }
+}

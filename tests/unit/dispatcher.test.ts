@@ -96,4 +96,20 @@ describe("dispatcher", () => {
     const h = init.headers as Headers;
     expect(h.get("authorization")).toBe("test-token-not-real");
   });
+
+  it("marks session expired on upstream 401", async () => {
+    const sessions = mockSession();
+    const fetchImpl = vi.fn(
+      async () => new Response("unauthorized", { status: 401 }),
+    );
+    const d = new QasirDispatcher({
+      sessions,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await expect(
+      d.dispatch({ operationId: "products.list", query: { page: 1 } }),
+    ).rejects.toMatchObject({ code: ErrorCodes.QASIR_AUTH_EXPIRED });
+    expect(sessions.markExpired).toHaveBeenCalled();
+  });
+
 });

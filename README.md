@@ -42,7 +42,7 @@ MCP: `POST /mcp` with `Authorization: Bearer <DEV_PSK>` when `ALLOW_DEV_PSK=true
 Hosted UI at **`/connect`** captures a dashboard session via phone/email + PIN (unofficial; not OAuth). Session material is stored in Durable Object `QasirSessionsDO` per MCP subject.
 
 1. Local: set `ALLOW_DEV_PSK=true` and open `/connect?psk=<DEV_PSK>`
-2. Sign in (or use **paste fallback** if `API_TOKEN` cannot be scraped after `tokenWeb` redirect — expected until the mint hop is observed)
+2. Sign in — complete merchant / outlet / OTP pickers if prompted (or use **paste fallback** if `API_TOKEN` cannot be scraped after `tokenWeb` redirect)
 3. `GET /connect/status` shows connected state without secrets
 4. MCP `/mcp` uses DO session for that subject; Worker `QASIR_*` secrets remain optional bootstrap
 
@@ -57,7 +57,8 @@ See [docs/connect-qasir.md](docs/connect-qasir.md).
 | `QASIR_COOKIE` | Optional bootstrap cookie jar (`qasir_sess`, `XSRF-TOKEN`, …) |
 | `DEV_PSK` | Local-only bearer / Connect gate when `ALLOW_DEV_PSK=true` |
 | `CONNECT_NONCE` | Connect gate when OAuth/PSK not used |
-| `SESSION_ENCRYPTION_KEY` | Reserved for encrypting DO session blobs |
+| `SESSION_ENCRYPTION_KEY` | AES-GCM key for DO session/pending blobs (`openssl rand -base64 32`) |
+| `REQUIRE_SESSION_ENCRYPTION` | When `true`, refuse plaintext DO writes if key missing |
 
 Production: configure OAuth issuer/audience + token verification (fail-closed until wired). Scopes: `qasir:read`, `qasir:write`, `qasir:admin`.
 

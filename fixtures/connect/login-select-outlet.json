@@ -1,0 +1,23 @@
+{
+  "status": 1,
+  "message": "",
+  "next_step": "select_outlet",
+  "data": {
+    "outlets": [
+      {
+        "id": 645203,
+        "name": "Utama",
+        "location_name": "Makassar",
+        "is_main": true,
+        "is_lock": false
+      },
+      {
+        "id": 645299,
+        "name": "Gudang",
+        "is_main": false,
+        "is_lock": true
+      }
+    ],
+    "merchant": { "id": 42 }
+  }
+}

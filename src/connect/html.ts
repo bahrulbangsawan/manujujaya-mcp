@@ -1,3 +1,5 @@
+import type { PendingAuthState, PendingMerchant, PendingOutlet } from "../session/types";
+
 function esc(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -25,8 +27,11 @@ const LAYOUT = (title: string, body: string) => `<!DOCTYPE html>
     textarea { min-height: 4.5rem; font-family: ui-monospace, monospace; font-size: .8rem; }
     button { margin-top: 1rem; background: #0f766e; color: #fff; border: 0; border-radius: 8px; padding: .6rem 1rem; font: inherit; cursor: pointer; }
     button.secondary { background: #64748b; }
+    button.choice { display: block; width: 100%; text-align: left; margin-top: .5rem; background: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; }
+    button.choice:disabled { opacity: .5; cursor: not-allowed; }
     .muted { color: #64748b; font-size: .8rem; }
     a { color: #0f766e; }
+    .badge { font-size: .7rem; background: #ccfbf1; color: #115e59; padding: .1rem .4rem; border-radius: 999px; margin-left: .35rem; }
   </style>
 </head>
 <body>
@@ -44,7 +49,7 @@ export function connectLoginPage(opts: {
     `<div class="card">
   <h1>Connect Qasir</h1>
   <p class="muted">Captures an unofficial dashboard session (phone/email + PIN) for this MCP worker. This is <strong>not</strong> official OAuth.</p>
-  <div class="warn">Qasir has no public API. Credentials stay in Durable Object storage (and optional Worker secrets for bootstrap). PIN is never logged or exposed to MCP tools.</div>
+  <div class="warn">Qasir has no public API. Credentials stay in Durable Object storage (AES-GCM when SESSION_ENCRYPTION_KEY is set). PIN is never logged or exposed to MCP tools.</div>
   ${status}
   <form method="POST" action="/connect/login" autocomplete="off">
     <input type="hidden" name="csrf" value="${esc(opts.csrfToken)}"/>
@@ -103,17 +108,6 @@ export function connectErrorHtml(opts: {
   });
 }
 
-export function connectNextStepHtml(opts: {
-  csrfToken: string;
-  step: string;
-  detail: string;
-}): string {
-  return connectLoginPage({
-    csrfToken: opts.csrfToken,
-    statusHtml: `<div class="warn"><strong>Next step: ${esc(opts.step)}</strong><pre class="muted" style="white-space:pre-wrap">${esc(opts.detail)}</pre><p class="muted">UI for merchant/outlet/OTP pickers is stubbed — complete in the Qasir dashboard, then use paste fallback.</p></div>`,
-  });
-}
-
 export function connectPasteNeededHtml(opts: {
   csrfToken: string;
   merchantSlug: string;
@@ -122,6 +116,130 @@ export function connectPasteNeededHtml(opts: {
   return connectLoginPage({
     csrfToken: opts.csrfToken,
     statusHtml: `<div class="warn">Login reached <strong>${esc(opts.merchantSlug)}</strong> but ${esc(opts.reason)}</div>`,
+  });
+}
+
+export function connectSelectMerchantHtml(opts: {
+  csrfToken: string;
+  merchants: PendingMerchant[];
+}): string {
+  const choices = opts.merchants
+    .map(
+      (m) => `<form method="POST" action="/connect/select-merchant">
+    <input type="hidden" name="csrf" value="${esc(opts.csrfToken)}"/>
+    <input type="hidden" name="merchantId" value="${m.id}"/>
+    <button type="submit" class="choice"><strong>${esc(m.business_name)}</strong><span class="muted"> · id ${m.id}</span></button>
+  </form>`,
+    )
+    .join("\n");
+  return LAYOUT(
+    "Select merchant",
+    `<div class="card">
+  <h1>Select merchant</h1>
+  <p class="muted">Your account has multiple stores. Choose one to continue Connect.</p>
+  ${choices || '<div class="err">No merchants returned</div>'}
+  <p class="muted" style="margin-top:1rem"><a href="/connect">Cancel</a></p>
+</div>`,
+  );
+}
+
+export function connectSelectOutletHtml(opts: {
+  csrfToken: string;
+  outlets: PendingOutlet[];
+}): string {
+  const choices = opts.outlets
+    .map((o) => {
+      const badge = o.is_main ? '<span class="badge">Utama</span>' : "";
+      const loc = o.location_name
+        ? `<div class="muted">${esc(o.location_name)}</div>`
+        : "";
+      const disabled = o.is_lock ? " disabled" : "";
+      const lockNote = o.is_lock
+        ? '<div class="muted">Locked — no access</div>'
+        : "";
+      return `<form method="POST" action="/connect/select-outlet">
+    <input type="hidden" name="csrf" value="${esc(opts.csrfToken)}"/>
+    <input type="hidden" name="outletId" value="${o.id}"/>
+    <button type="submit" class="choice"${disabled}><strong>${esc(o.name)}</strong>${badge}${loc}${lockNote}</button>
+  </form>`;
+    })
+    .join("\n");
+  return LAYOUT(
+    "Select outlet",
+    `<div class="card">
+  <h1>Select outlet</h1>
+  <p class="muted">Pick an unlocked outlet to finish sign-in.</p>
+  ${choices || '<div class="err">No outlets returned</div>'}
+  <p class="muted" style="margin-top:1rem"><a href="/connect">Cancel</a></p>
+</div>`,
+  );
+}
+
+export function connectVerifyOtpHtml(opts: {
+  csrfToken: string;
+  mobile?: string;
+  message?: string;
+}): string {
+  const msg = opts.message
+    ? `<div class="warn">${esc(opts.message)}</div>`
+    : "";
+  const mobile = opts.mobile
+    ? `<p class="muted">Code sent to <strong>${esc(opts.mobile)}</strong></p>`
+    : "";
+  return LAYOUT(
+    "Verify OTP",
+    `<div class="card">
+  <h1>Verify OTP</h1>
+  ${mobile}
+  ${msg}
+  <form method="POST" action="/connect/verify-otp" autocomplete="off">
+    <input type="hidden" name="csrf" value="${esc(opts.csrfToken)}"/>
+    <label for="code">4-digit code</label>
+    <input id="code" name="code" inputmode="numeric" pattern="\\d{4}" maxlength="4" required autocomplete="one-time-code"/>
+    <button type="submit">Verify</button>
+  </form>
+  <form method="POST" action="/connect/resend-otp" style="margin-top:.5rem">
+    <input type="hidden" name="csrf" value="${esc(opts.csrfToken)}"/>
+    <button type="submit" class="secondary">Resend OTP</button>
+  </form>
+  <p class="muted" style="margin-top:1rem"><a href="/connect">Cancel</a></p>
+</div>`,
+  );
+}
+
+/** @deprecated stub page — prefer dedicated select/OTP UIs */
+export function connectNextStepHtml(opts: {
+  csrfToken: string;
+  step: string;
+  detail: string;
+}): string {
+  return connectLoginPage({
+    csrfToken: opts.csrfToken,
+    statusHtml: `<div class="warn"><strong>Next step: ${esc(opts.step)}</strong><pre class="muted" style="white-space:pre-wrap">${esc(opts.detail)}</pre></div>`,
+  });
+}
+
+export function connectPendingHtml(
+  csrfToken: string,
+  pending: PendingAuthState,
+  message?: string,
+): string {
+  if (pending.step === "select_merchant") {
+    return connectSelectMerchantHtml({
+      csrfToken,
+      merchants: pending.merchants ?? [],
+    });
+  }
+  if (pending.step === "select_outlet") {
+    return connectSelectOutletHtml({
+      csrfToken,
+      outlets: pending.outlets ?? [],
+    });
+  }
+  return connectVerifyOtpHtml({
+    csrfToken,
+    mobile: pending.mobile,
+    message,
   });
 }
 
