@@ -5,7 +5,7 @@ import { cx } from "./ui";
 
 export function ViewSwitcher({ current }: { current: ViewName }) {
   return (
-    <nav aria-label="Pilih tampilan" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
+    <nav aria-label="Pilih tampilan" className="-mx-1 flex w-full min-w-0 gap-1 overflow-x-auto px-1 pb-1">
       {VIEWS.map((view) => {
         const active = view === current;
         return (

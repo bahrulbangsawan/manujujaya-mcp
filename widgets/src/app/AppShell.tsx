@@ -83,18 +83,26 @@ export function atViewDefaults(view: ViewName, location: { pathname: string; sea
   return deepEqual(schema.parse(defaultParseSearch(location.search)), schema.parse({}));
 }
 
-function insetsStyle(context: McpUiHostContext | undefined): CSSProperties | undefined {
+/** Host safe-area padding. Zero sides are omitted so they cannot wipe the inner `px-4`. */
+export function hostInsetsStyle(context: McpUiHostContext | undefined): CSSProperties | undefined {
   const insets = context?.safeAreaInsets;
   if (!insets) return undefined;
-  return { paddingTop: insets.top, paddingRight: insets.right, paddingBottom: insets.bottom, paddingLeft: insets.left };
+  const style: CSSProperties = {};
+  if (insets.top) style.paddingTop = insets.top;
+  if (insets.right) style.paddingRight = insets.right;
+  if (insets.bottom) style.paddingBottom = insets.bottom;
+  if (insets.left) style.paddingLeft = insets.left;
+  return Object.keys(style).length > 0 ? style : undefined;
 }
 
 function WidgetRoot(props: { bridge: Bridge; queryClient: QueryClient; router: WidgetRouter; style?: CSSProperties | undefined }) {
   return (
     <BridgeContext.Provider value={props.bridge}>
       <QueryClientProvider client={props.queryClient}>
-        <div className="mx-auto w-full max-w-5xl p-3 text-sm text-fg" style={props.style}>
-          <RouterProvider router={props.router} />
+        <div className="min-w-0 max-w-full" style={props.style}>
+          <div className="mx-auto box-border w-full min-w-0 max-w-5xl overflow-x-hidden px-4 py-3 text-sm text-fg">
+            <RouterProvider router={props.router} />
+          </div>
         </div>
       </QueryClientProvider>
     </BridgeContext.Provider>
@@ -103,7 +111,7 @@ function WidgetRoot(props: { bridge: Bridge; queryClient: QueryClient; router: W
 
 function StatusPanel(props: { title: string; body: string; busy?: boolean }) {
   return (
-    <div className="p-3 text-sm text-fg" role={props.busy ? "status" : "alert"} aria-busy={props.busy ?? false}>
+    <div className="px-4 py-3 text-sm text-fg" role={props.busy ? "status" : "alert"} aria-busy={props.busy ?? false}>
       <p className="font-semibold">{props.title}</p>
       <p className="text-fg-muted">{props.body}</p>
     </div>
@@ -164,7 +172,7 @@ function HostedShell(props: { view: ViewName }) {
 
   if (error) return <StatusPanel title="Tidak dapat terhubung" body="Widget gagal terhubung ke aplikasi obrolan. Muat ulang percakapan." />;
   if (!bridge || router === null) return <StatusPanel title="Memuat…" body="Menyiapkan tampilan Qasir." busy />;
-  return <WidgetRoot bridge={bridge} queryClient={queryClient} router={router} style={insetsStyle(app?.getHostContext())} />;
+  return <WidgetRoot bridge={bridge} queryClient={queryClient} router={router} style={hostInsetsStyle(app?.getHostContext())} />;
 }
 
 /**

@@ -75,8 +75,11 @@
 
 @layer base {
   html,
-  body {
+  body,
+  #root {
     margin: 0;
+    max-width: 100%;
+    overflow-x: hidden;
     background-color: var(--color-background-primary);
     color: var(--color-text-primary);
     font-family: var(--font-sans);

@@ -13,6 +13,9 @@ import type { QasirSessionProvider } from "../../session/types";
 import { DEFAULT_WIDGET_LIMITS, RequestBudget, type RequestBudgetLimits } from "../budget";
 import {
   MCP_APP_LEGACY_RESOURCE_URI_KEY,
+  OPENAI_OUTPUT_TEMPLATE_KEY,
+  OPENAI_VISIBILITY_KEY,
+  OPENAI_WIDGET_ACCESSIBLE_KEY,
   STRUCTURED_MAX_CHARS,
   viewResourceUri,
   type ToolName,
@@ -72,13 +75,22 @@ export const WIDGET_TOOL_ANNOTATIONS = {
   openWorldHint: true,
 } as const;
 
-/** `_meta` for a widget tool: resourceUri (plus the legacy flat key) for views, app-only visibility otherwise. */
+/** `_meta` for a widget tool: resourceUri (plus ChatGPT aliases) for views, app-only visibility otherwise. */
 export function widgetToolMeta(view: ViewName | undefined): Record<string, unknown> {
   if (view) {
     const uri = viewResourceUri(view);
-    return { ui: { resourceUri: uri }, [MCP_APP_LEGACY_RESOURCE_URI_KEY]: uri };
+    return {
+      ui: { resourceUri: uri, visibility: ["model", "app"] },
+      [MCP_APP_LEGACY_RESOURCE_URI_KEY]: uri,
+      [OPENAI_OUTPUT_TEMPLATE_KEY]: uri,
+      [OPENAI_WIDGET_ACCESSIBLE_KEY]: true,
+    };
   }
-  return { ui: { visibility: ["app"] } };
+  return {
+    ui: { visibility: ["app"] },
+    [OPENAI_VISIBILITY_KEY]: "private",
+    [OPENAI_WIDGET_ACCESSIBLE_KEY]: true,
+  };
 }
 
 /** errorResult(err), plus connect_url for QASIR_AUTH_EXPIRED so the widget can offer the reconnect link. */
@@ -158,7 +170,13 @@ export async function invokeWidgetTool<S extends z.ZodObject>(
         `Widget result is ${size} characters of JSON; at most ${STRUCTURED_MAX_CHARS} are allowed`,
       );
     }
-    return { content: [{ type: "text", text: clipText(outcome.text) }], structuredContent: outcome.structured };
+    return {
+      content: [{ type: "text", text: clipText(outcome.text) }],
+      structuredContent: outcome.structured,
+      // ChatGPT's widget callTool path sometimes drops structuredContent and only forwards _meta.
+      _meta: { structuredContent: outcome.structured },
+    };
+
   } catch (err) {
     log("warn", `tool.${def.name}.error`, { code: errorCodeOf(err) });
     return widgetErrorResult(err, deps.env);

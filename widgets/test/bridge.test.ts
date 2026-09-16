@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ToolCallError, parseToolResult, toToolCallError } from "../src/bridge/bridge";
+import { ToolCallError, parseToolResult, structuredContentOf, toToolCallError } from "../src/bridge/bridge";
 import { errorCopy } from "../src/lib/errors";
 
 const stockVelocity = {
@@ -34,6 +34,15 @@ describe("parseToolResult", () => {
     expect(data.days_of_cover).toBe(8.16);
     expect("future_field" in data).toBe(false);
   });
+
+  it("reads ChatGPT wrappers: _meta, snake_case, nested result, and a bare payload", () => {
+    expect(parseToolResult("stock_velocity", { _meta: { structuredContent: stockVelocity } }).stock).toBe(12);
+    expect(parseToolResult("stock_velocity", { structured_content: stockVelocity }).stock).toBe(12);
+    expect(parseToolResult("stock_velocity", { result: { structuredContent: stockVelocity } }).stock).toBe(12);
+    expect(parseToolResult("stock_velocity", stockVelocity).stock).toBe(12);
+    expect(structuredContentOf({ isError: true, structuredContent: stockVelocity })).toBeUndefined();
+  });
+
 
   it("maps a JSON error body, including connect_url", () => {
     const err = thrown(() =>

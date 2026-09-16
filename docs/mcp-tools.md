@@ -110,7 +110,7 @@ To enable mutations, see [operations.md § Enabling mutations](architecture/oper
 
 ## Widgets (MCP Apps)
 
-Six interactive views, in Bahasa Indonesia, are served as MCP Apps (extension `io.modelcontextprotocol/ui`, `@modelcontextprotocol/ext-apps` 2.0.0). Each view has one model-visible tool. The tool's `_meta.ui.resourceUri` (mirrored in the older `_meta["ui/resourceUri"]` key) points to `ui://manujujaya/<view>.html`.
+Six interactive views, in Bahasa Indonesia, are served as MCP Apps (extension `io.modelcontextprotocol/ui`, `@modelcontextprotocol/ext-apps` 2.0.0). Each view has one model-visible tool. The tool's `_meta.ui.resourceUri` (mirrored in `_meta["ui/resourceUri"]` and ChatGPT's `_meta["openai/outputTemplate"]`) points to `ui://manujujaya/<view>.html`. Every widget tool also sets `_meta["openai/widgetAccessible"]=true` so ChatGPT will proxy `callServerTool` from the iframe (date filters, order detail, paging). Helper tools add `_meta["openai/visibility"]="private"` next to `_meta.ui.visibility: ["app"]`.
 
 - **Hosts that render MCP Apps** show the view inline. The view receives the tool's `structuredContent` and then calls the helper tools through the host for more pages and details.
 - **Other clients** get the text block only. It is written to answer the question without the UI.
@@ -130,7 +130,7 @@ Client UI support is only known per request, after the server factory runs. So t
 
 ### Helper tools (app-only)
 
-These tools carry `_meta.ui.visibility: ["app"]`, and their descriptions start with `Widget helper:`. Hosts hide them from the model, but the server still lists them to every client.
+These tools carry `_meta.ui.visibility: ["app"]` and `_meta["openai/visibility"]="private"`, and their descriptions start with `Widget helper:`. Hosts hide them from the model, but the server still lists them to every client.
 
 | Tool | Used by | Input | Upstream requests (max) |
 | --- | --- | --- | --- |

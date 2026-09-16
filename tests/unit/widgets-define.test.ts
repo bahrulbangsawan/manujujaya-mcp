@@ -9,6 +9,7 @@ import {
   invokeWidgetTool,
   registerWidgetTool,
   widgetErrorResult,
+  widgetToolMeta,
   WIDGET_TOOL_ANNOTATIONS,
   type ToolContext,
   type WidgetToolDef,
@@ -82,6 +83,8 @@ describe("invokeWidgetTool: success path", () => {
       today: "2026-09-15",
       results: [envelope(summaryFixture)],
     });
+    expect(call.result._meta).toEqual({ structuredContent: call.structured });
+
   });
 
   it("dispatches with the call's abort signal and never allowMutation", async () => {
@@ -351,6 +354,26 @@ describe("invokeWidgetTool: output caps", () => {
   });
 });
 
+describe("widgetToolMeta", () => {
+  it("marks view tools widget-accessible for ChatGPT and aliases the template URI", () => {
+    expect(widgetToolMeta("stok")).toEqual({
+      ui: { resourceUri: "ui://manujujaya/stok.html", visibility: ["model", "app"] },
+      "ui/resourceUri": "ui://manujujaya/stok.html",
+      "openai/outputTemplate": "ui://manujujaya/stok.html",
+      "openai/widgetAccessible": true,
+    });
+  });
+
+  it("marks helper tools app-only and widget-accessible", () => {
+    expect(widgetToolMeta(undefined)).toEqual({
+      ui: { visibility: ["app"] },
+      "openai/visibility": "private",
+      "openai/widgetAccessible": true,
+    });
+  });
+});
+
+
 describe("registerWidgetTool on the wire", () => {
   const viewDef: WidgetToolDef<typeof probeInput> = probe({
     name: "show_stock_browser",
@@ -397,11 +420,8 @@ describe("registerWidgetTool on the wire", () => {
     const tools = (await wire("tools/list")).body.result!.tools as ListedTool[];
     expect(tools.map((t) => t.name)).toEqual(["show_stock_browser", "stock_page"]);
     const [view, app] = tools;
-    expect(view!._meta).toEqual({
-      ui: { resourceUri: "ui://manujujaya/stok.html" },
-      "ui/resourceUri": "ui://manujujaya/stok.html",
-    });
-    expect(app!._meta).toEqual({ ui: { visibility: ["app"] } });
+    expect(view!._meta).toEqual(widgetToolMeta("stok"));
+    expect(app!._meta).toEqual(widgetToolMeta(undefined));
     for (const tool of tools) {
       expect(tool.annotations).toEqual({ ...WIDGET_TOOL_ANNOTATIONS });
       expect(tool.outputSchema).toBeUndefined();

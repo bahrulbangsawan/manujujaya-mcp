@@ -17,6 +17,13 @@ export function viewResourceUri(view: ViewName): string {
 /** MCP Apps constants (ext-apps 2.0.0 values, inlined so the Worker does not depend on the package). */
 export const MCP_APP_MIME_TYPE = "text/html;profile=mcp-app";
 export const MCP_APP_LEGACY_RESOURCE_URI_KEY = "ui/resourceUri";
+/** ChatGPT alias of `_meta.ui.resourceUri`. */
+export const OPENAI_OUTPUT_TEMPLATE_KEY = "openai/outputTemplate";
+/** ChatGPT: widget `callTool` is denied unless this is true (default false). */
+export const OPENAI_WIDGET_ACCESSIBLE_KEY = "openai/widgetAccessible";
+/** ChatGPT alias of `_meta.ui.visibility: ["app"]`. */
+export const OPENAI_VISIBILITY_KEY = "openai/visibility";
+
 /** Replaced with the view name when a ui:// resource is read. */
 export const VIEW_MARKER = "__MJ_VIEW__";
 

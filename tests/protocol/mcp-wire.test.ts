@@ -5,6 +5,7 @@ import { createManujujayaServer } from "../../src/mcp/server";
 import { DOC_NAMES } from "../../src/mcp/resources";
 import { WIDGET_HTML } from "../../src/widgets/bundled";
 import { APP_TOOL, MCP_APP_MIME_TYPE, VIEW_MARKER, VIEW_TOOL, VIEWS, viewResourceUri } from "../../src/widgets/contract";
+import { widgetToolMeta } from "../../src/widgets/tools/define";
 import { renderViewHtml } from "../../src/widgets/resources";
 import {
   createApprovalsHarness,
@@ -155,7 +156,7 @@ describe("tools", () => {
       expect(tool.title, tool.name).toBeTruthy();
       expect(tool.description!.startsWith("Open an interactive"), tool.name).toBe(true);
       expect(tool.description!.length, tool.name).toBeLessThanOrEqual(600);
-      expect(tool._meta).toEqual({ ui: { resourceUri: viewResourceUri(view) }, "ui/resourceUri": viewResourceUri(view) });
+      expect(tool._meta).toEqual(widgetToolMeta(view));
       expect(tool.annotations).toEqual(readOnly);
       expect(tool.outputSchema).toBeUndefined();
     }
@@ -164,7 +165,7 @@ describe("tools", () => {
       expect(tool.title, name).toBeTruthy();
       expect(tool.description!.startsWith("Widget helper:"), name).toBe(true);
       expect(tool.description!.length, name).toBeLessThanOrEqual(300);
-      expect(tool._meta).toEqual({ ui: { visibility: ["app"] } });
+      expect(tool._meta).toEqual(widgetToolMeta(undefined));
       expect(tool.annotations).toEqual(readOnly);
       expect(tool.outputSchema).toBeUndefined();
     }

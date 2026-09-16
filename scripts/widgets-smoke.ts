@@ -126,6 +126,20 @@ async function smokeView(page: Page, hostScript: string, view: ViewName): Promis
   }
   const heading = await frame.evaluate(() => document.querySelector("h1")?.textContent?.trim() ?? "");
   check(`${view}: renders "${LANDMARK[view]}" under heading ${VIEW_LABEL[view]}`, rendered && heading === VIEW_LABEL[view], `h1="${heading}"`);
+  const padding = await frame.evaluate(() => {
+    let element: HTMLElement | null = document.querySelector("h1");
+    while (element) {
+      const style = getComputedStyle(element);
+      if (style.paddingLeft === "16px" && style.paddingRight === "16px") {
+        return { left: style.paddingLeft, right: style.paddingRight };
+      }
+      element = element.parentElement;
+    }
+    return { left: "", right: "" };
+  });
+  check(`${view}: 16px left and right padding`, padding.left === "16px" && padding.right === "16px", `${padding.left}/${padding.right}`);
+
+
   check(`${view}: no <form> elements`, (await frame.evaluate(() => document.querySelectorAll("form").length)) === 0);
 
   if (view === "transaksi") {

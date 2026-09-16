@@ -2,7 +2,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { AppShell } from "../src/app/AppShell";
+import { AppShell, hostInsetsStyle } from "../src/app/AppShell";
 import { createWidgetQueryClient } from "../src/app/queryClient";
 import { createWidgetRouter } from "../src/app/router";
 import { toolArgsFromSearch } from "../src/app/search";
@@ -45,5 +45,26 @@ describe("AppShell with the mock bridge", () => {
     expect(first.history.location.pathname).toBe("/stok");
     expect(first.history.location.search).toBe("?search=Kopi");
     expect(second.history.location.pathname).toBe("/piutang");
+  });
+
+  it("keeps 16px left and right padding on the chat preview", async () => {
+    const { container } = render(<AppShell view="penjualan" bridge={createMockBridge()} />);
+    expect(await screen.findByText("Penjualan kotor")).toBeTruthy();
+    expect(container.querySelector(".px-4")).toBeTruthy();
+  });
+});
+
+describe("hostInsetsStyle", () => {
+  it("ignores missing and all-zero insets so they cannot wipe content padding", () => {
+    expect(hostInsetsStyle(undefined)).toBeUndefined();
+    expect(hostInsetsStyle({} as never)).toBeUndefined();
+    expect(hostInsetsStyle({ safeAreaInsets: { top: 0, right: 0, bottom: 0, left: 0 } } as never)).toBeUndefined();
+  });
+
+  it("applies only non-zero host safe-area sides", () => {
+    expect(hostInsetsStyle({ safeAreaInsets: { top: 0, right: 8, bottom: 48, left: 0 } } as never)).toEqual({
+      paddingRight: 8,
+      paddingBottom: 48,
+    });
   });
 });
