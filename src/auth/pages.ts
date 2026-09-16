@@ -1,28 +1,46 @@
-import { esc, layout } from "../web/html";
+import { brandRow, esc, layout } from "../web/html";
 import { SCOPES } from "./scopes";
 
 const SCOPE_LABELS: Record<string, string> = {
-  [SCOPES.READ]: "Read Qasir data (products, sales, stock, purchases, reports)",
-  [SCOPES.WRITE]: "Request gated write operations (still needs per-operation approval and ENABLE_MUTATIONS=true)",
-  [SCOPES.ADMIN]: "Administrative access (implies read and write)",
+  [SCOPES.READ]: "Read products, sales, stock, purchases, and reports",
+  [SCOPES.WRITE]: "Request gated changes that still require approval for each operation",
+  [SCOPES.ADMIN]: "Administrative access, including read and write permissions",
 };
 
 export function ownerLoginPage(opts: { csrf: string; next: string; error?: string }): string {
-  const err = opts.error ? `<div class="err">${esc(opts.error)}</div>` : "";
+  const err = opts.error
+    ? `<div class="panel panel-danger" role="alert"><div class="panel-heading"><span class="status-icon" aria-hidden="true">!</span><div><strong>Sign-in failed</strong><br/>${esc(opts.error)}</div></div></div>`
+    : "";
   return layout(
     "Owner sign-in",
-    `<div class="card">
-  <h1>Owner sign-in</h1>
-  <p class="muted">This server belongs to a single owner. Enter the owner password to continue.</p>
+    `<section class="card card-compact" aria-labelledby="login-title">
+  ${brandRow("Secure owner access")}
+  <header class="card-header">
+    <h1 id="login-title">Owner sign-in</h1>
+    <p class="subtitle">Enter the owner password to continue to this Qasir server.</p>
+  </header>
+  <div class="panel panel-neutral">
+    <strong>Private server access</strong>
+    <span>Only the server owner can authorize clients and approve Qasir changes.</span>
+  </div>
   ${err}
-  <form method="POST" action="/login" autocomplete="off">
+  <form method="POST" action="/login" autocomplete="off" class="form-stack">
     <input type="hidden" name="csrf" value="${esc(opts.csrf)}"/>
     <input type="hidden" name="next" value="${esc(opts.next)}"/>
-    <label for="password">Owner password</label>
-    <input id="password" name="password" type="password" required autocomplete="current-password"/>
-    <button type="submit">Sign in</button>
+    <div class="field">
+      <div class="field-label-row">
+        <label for="password">Owner password</label>
+        <span class="field-hint">Required</span>
+      </div>
+      <input id="password" name="password" type="password" required autocomplete="current-password" placeholder="Enter owner password"${opts.error ? ' aria-invalid="true" aria-describedby="login-error"' : ""}/>
+      ${opts.error ? '<span class="sr-only" id="login-error">The owner password was not accepted.</span>' : ""}
+    </div>
+    <div class="actions">
+      <button type="submit" class="btn btn-primary">Sign in securely</button>
+    </div>
   </form>
-</div>`,
+  <p class="privacy-note">Your password is used only to verify owner access.</p>
+</section>`,
   );
 }
 
@@ -39,46 +57,99 @@ export interface ConsentPageOptions {
 }
 
 export function consentPage(o: ConsentPageOptions): string {
-  const err = o.error ? `<div class="err">${esc(o.error)}</div>` : "";
+  const err = o.error
+    ? `<div class="panel panel-danger" role="alert"><div class="panel-heading"><span class="status-icon" aria-hidden="true">!</span><div><strong>Authorization needs attention</strong><br/>${esc(o.error)}</div></div></div>`
+    : "";
   const scopes = o.offeredScopes
-    .map((s) => {
-      const checked = o.defaultScopes.includes(s) ? " checked" : "";
-      return `<label class="check"><input type="checkbox" name="scope" value="${esc(s)}"${checked}/><span><code>${esc(s)}</code><br/><span class="muted">${esc(SCOPE_LABELS[s] ?? s)}</span></span></label>`;
+    .map((scope) => {
+      const checked = o.defaultScopes.includes(scope) ? " checked" : "";
+      return `<label class="radio-card">
+      <input type="checkbox" name="scope" value="${esc(scope)}"${checked}/>
+      <span class="radio-card-copy">
+        <span class="scope-name">${esc(scope)}</span>
+        <span class="scope-description">${esc(SCOPE_LABELS[scope] ?? scope)}</span>
+      </span>
+    </label>`;
     })
     .join("\n");
   const password = o.needsPassword
-    ? `<label for="password">Owner password</label>
-    <input id="password" name="password" type="password" required autocomplete="current-password"/>`
-    : `<p class="muted">Signed in as owner.</p>`;
+    ? `<div class="field">
+      <div class="field-label-row">
+        <label for="password">Owner password</label>
+        <span class="field-hint">Required to approve</span>
+      </div>
+      <input id="password" name="password" type="password" required autocomplete="current-password" placeholder="Enter owner password"${o.error ? ' aria-invalid="true" aria-describedby="authorization-error"' : ""}/>
+      ${o.error ? '<span class="sr-only" id="authorization-error">Review the authorization error above.</span>' : ""}
+    </div>`
+    : `<p class="inline-note">Signed in as owner</p>`;
   let redirectOrigin = o.redirectUri;
   try {
     redirectOrigin = new URL(o.redirectUri).origin;
   } catch {
-    // keep raw value
+    // Display the raw value when an origin cannot be derived.
   }
   return layout(
     "Authorize MCP client",
-    `<div class="card">
-  <h1>Authorize MCP client</h1>
-  <p>An application wants to access this Qasir MCP server.</p>
-  <div class="warn">Client name (self-declared): <strong>${esc(o.clientName)}</strong><br/>
-  Redirects to: <code>${esc(redirectOrigin)}</code><br/>
-  <span class="muted">Only approve if you started this connection yourself and the redirect matches the app you use (for Claude: <code>https://claude.ai</code> or <code>http://localhost</code>).</span></div>
-  <p class="muted">Client ID: <code>${esc(o.clientId)}</code></p>
+    `<section class="card" aria-labelledby="authorization-title">
+  ${brandRow()}
+  <header class="card-header">
+    <h1 id="authorization-title">Authorize MCP client</h1>
+    <p class="subtitle">${esc(o.clientName)} is requesting access to your Qasir workspace.</p>
+  </header>
+  <div class="panel panel-neutral">
+    <div class="panel-heading">
+      <span class="client-mark" aria-hidden="true">&gt;_</span>
+      <span class="panel-copy">
+        <strong class="panel-title">${esc(o.clientName)}</strong>
+        <span class="eyebrow">Self-declared client</span>
+      </span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">Redirects to</span>
+      <code class="detail-value">${esc(redirectOrigin)}</code>
+    </div>
+    <span class="eyebrow">Only approve if you started this connection and recognize the redirect.</span>
+  </div>
+  <div class="meta-list">
+    <div class="meta-row">
+      <span class="meta-label">Client ID</span>
+      <code class="meta-value">${esc(o.clientId)}</code>
+    </div>
+  </div>
   ${err}
-  <form method="POST" action="${esc(o.actionUrl)}" autocomplete="off">
+  <form method="POST" action="${esc(o.actionUrl)}" autocomplete="off" class="form-stack">
     <input type="hidden" name="csrf" value="${esc(o.csrf)}"/>
-    ${scopes}
+    <fieldset style="min-width:0;margin:0;padding:0;border:0">
+      <legend class="section-label" style="margin-bottom:8px">Requested permission</legend>
+      ${scopes}
+    </fieldset>
     ${password}
-    <div class="row">
-      <button type="submit" name="decision" value="approve">Approve</button>
-      <button type="submit" name="decision" value="deny" class="secondary" formnovalidate>Deny</button>
+    <div class="actions">
+      <button type="submit" name="decision" value="approve" class="btn btn-primary">Approve access</button>
+      <button type="submit" name="decision" value="deny" class="btn btn-danger" formnovalidate>Deny</button>
     </div>
   </form>
-</div>`,
+  <p class="privacy-note">Your password is used only to verify this authorization.</p>
+</section>`,
   );
 }
 
 export function simpleErrorPage(title: string, message: string): string {
-  return layout(title, `<div class="card"><h1>${esc(title)}</h1><div class="err">${esc(message)}</div></div>`);
+  return layout(
+    title,
+    `<section class="card card-compact" aria-labelledby="error-title">
+  ${brandRow("Request closed")}
+  <header class="card-header">
+    <h1 id="error-title">${esc(title)}</h1>
+    <p class="subtitle">This request could not be completed.</p>
+  </header>
+  <div class="panel panel-danger" role="alert">
+    <div class="panel-heading">
+      <span class="status-icon" aria-hidden="true">!</span>
+      <span>${esc(message)}</span>
+    </div>
+  </div>
+  <p class="privacy-note">No Qasir data was shared.</p>
+</section>`,
+  );
 }

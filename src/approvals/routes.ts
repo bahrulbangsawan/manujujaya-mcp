@@ -2,7 +2,7 @@ import { assertCsrf, ensureCsrf, readOwner, type OwnerEnv } from "../auth/owner"
 import { toAppError } from "../errors/codes";
 import { log } from "../observability/log";
 import { redactValue } from "../observability/redact";
-import { esc, htmlResponse, layout } from "../web/html";
+import { brandRow, esc, htmlResponse, layout } from "../web/html";
 import { approvalsStubFor, type ApprovalRecord } from "./mutation-approvals";
 
 export interface ApprovalRoutesEnv extends OwnerEnv {
@@ -11,36 +11,84 @@ export interface ApprovalRoutesEnv extends OwnerEnv {
 
 const ID_RE = /^\/approvals\/([0-9a-f-]{36})$/;
 
-function approvalPage(record: ApprovalRecord, csrf: string, message?: string): string {
-  const p = record.preview;
+type NoticeTone = "success" | "danger";
+
+function approvalPage(record: ApprovalRecord, csrf: string, message?: string, noticeTone: NoticeTone = "success"): string {
+  const preview = record.preview;
   const expired = Date.now() > record.expiresAt;
+  const shownStatus = expired && record.status === "pending" ? "expired" : record.status;
+  const statusTone =
+    shownStatus === "approved"
+      ? "success"
+      : shownStatus === "rejected"
+        ? "danger"
+        : shownStatus === "expired"
+          ? "warning"
+          : "neutral";
+  const statusLabel: Record<string, string> = {
+    pending: "Awaiting decision",
+    approved: "Approved once",
+    rejected: "Rejected",
+    consumed: "Approval used",
+    expired: "Expired",
+  };
   const details = JSON.stringify(
-    { path: p.path, query: p.query, body: redactValue(p.body) },
+    { path: preview.path, query: preview.query, body: redactValue(preview.body) },
     null,
     2,
   );
+  const notice = message
+    ? `<div class="panel panel-${noticeTone}" role="${noticeTone === "danger" ? "alert" : "status"}"><div class="panel-heading"><span class="status-icon" aria-hidden="true">${noticeTone === "danger" ? "!" : "✓"}</span><span>${esc(message)}</span></div></div>`
+    : "";
   const actions =
     record.status === "pending" && !expired
-      ? `<form method="POST">
+      ? `<form method="POST" class="form-stack">
     <input type="hidden" name="csrf" value="${esc(csrf)}"/>
-    <div class="row">
-      <button type="submit" name="decision" value="approve">Approve once</button>
-      <button type="submit" name="decision" value="reject" class="secondary">Reject</button>
+    <div class="actions">
+      <button type="submit" name="decision" value="approve" class="btn btn-primary">Approve once</button>
+      <button type="submit" name="decision" value="reject" class="btn btn-danger">Reject</button>
     </div>
   </form>`
-      : `<p class="muted">Status: <strong>${esc(expired && record.status === "pending" ? "expired" : record.status)}</strong></p>`;
+      : `<div class="panel panel-${statusTone}">
+    <div class="panel-heading">
+      <span class="status-icon" aria-hidden="true">${shownStatus === "approved" ? "✓" : shownStatus === "rejected" ? "×" : "!"}</span>
+      <span><strong>${esc(statusLabel[shownStatus] ?? shownStatus)}</strong><br/>This request can no longer be changed.</span>
+    </div>
+  </div>`;
   return layout(
     "Approve mutation",
-    `<div class="card">
-  <h1>Approve Qasir change</h1>
-  ${message ? `<div class="ok">${esc(message)}</div>` : ""}
-  <div class="warn"><strong>${esc(p.title)}</strong> (<code>${esc(p.operationId)}</code>)<br/>
-  Safety: <strong>${esc(p.safety)}</strong> · ${esc(p.method)} ${esc(p.host)}${esc(p.pathTemplate)}</div>
-  <label>Arguments</label>
-  <pre style="white-space:pre-wrap;word-break:break-all" class="muted">${esc(details)}</pre>
-  <p class="muted">Approval is single-use, bound to exactly these arguments, and expires ${esc(new Date(record.expiresAt).toISOString())}.</p>
+    `<section class="card" aria-labelledby="approval-title">
+  ${brandRow("Owner approval")}
+  <header class="card-header">
+    <h1 id="approval-title">Approve Qasir change</h1>
+    <p class="subtitle">Review the exact operation and arguments before allowing this change.</p>
+  </header>
+  ${notice}
+  <div class="panel panel-${statusTone}">
+    <div class="panel-heading">
+      <span class="client-mark" aria-hidden="true">&gt;_</span>
+      <span class="panel-copy">
+        <strong class="panel-title">${esc(preview.title)}</strong>
+        <code class="eyebrow">${esc(preview.operationId)}</code>
+      </span>
+    </div>
+    <div class="detail-row">
+      <span class="badge badge-${statusTone}">${esc(statusLabel[shownStatus] ?? shownStatus)}</span>
+      <span class="badge badge-warning">${esc(preview.safety)}</span>
+    </div>
+    <div class="detail-row">
+      <strong class="detail-label">${esc(preview.method)}</strong>
+      <code class="detail-value">${esc(preview.host)}${esc(preview.pathTemplate)}</code>
+    </div>
+  </div>
+  <div class="field">
+    <h2 class="section-label">Arguments</h2>
+    <pre class="code-block">${esc(details)}</pre>
+  </div>
+  <p class="muted">Approval is single-use, bound to exactly these arguments, and expires at ${esc(new Date(record.expiresAt).toISOString())}.</p>
   ${actions}
-</div>`,
+  <p class="privacy-note">Only this exact Qasir change can use the approval.</p>
+</section>`,
   );
 }
 
@@ -64,7 +112,13 @@ export async function handleApprovalRoutes(request: Request, env: ApprovalRoutes
   const cookies = csrf.setCookie ? { "set-cookie": csrf.setCookie } : undefined;
   const record = await stub.get(match[1]!);
   if (!record || record.subject !== owner.subject) {
-    return htmlResponse(layout("Not found", `<div class="card"><div class="err">Approval not found.</div></div>`), 404);
+    return htmlResponse(
+      layout(
+        "Not found",
+        `<section class="card card-compact">${brandRow("Request closed")}<header class="card-header"><h1>Approval not found</h1><p class="subtitle">This approval link is invalid or no longer available.</p></header><div class="panel panel-danger" role="alert">Ask the assistant to create a new approval request.</div></section>`,
+      ),
+      404,
+    );
   }
   if (request.method === "GET") return htmlResponse(approvalPage(record, csrf.token), 200, cookies);
   if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
@@ -76,10 +130,10 @@ export async function handleApprovalRoutes(request: Request, env: ApprovalRoutes
     const updated = await stub.decide({ id: record.id, subject: owner.subject, decision });
     log("info", "mutation.approval.decided", { operationId: updated.operationId, decision });
     const note = decision === "approve" ? "Approved. Ask the assistant to run execute_mutation again with this approvalId." : "Rejected.";
-    return htmlResponse(approvalPage(updated, csrf.token, note), 200, cookies);
+    return htmlResponse(approvalPage(updated, csrf.token, note, decision === "approve" ? "success" : "danger"), 200, cookies);
   } catch (err) {
     // DO RPC errors arrive as plain Errors with name/code copied.
     const app = toAppError(err);
-    return htmlResponse(approvalPage(record, csrf.token, app?.message ?? "Could not record decision"), app?.status ?? 500, cookies);
+    return htmlResponse(approvalPage(record, csrf.token, app?.message ?? "Could not record decision", "danger"), app?.status ?? 500, cookies);
   }
 }
