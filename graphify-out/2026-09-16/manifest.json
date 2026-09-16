@@ -1230,10 +1230,10 @@
     "semantic_hash": "d9149b16c67071b68a432c97e66fe79a"
   },
   "AGENTS.md": {
-    "mtime": 1789516837.9905057,
-    "seen": 1789517124.522336,
-    "ast_hash": "6a47d64fcc136324ca395065a707ef76",
-    "semantic_hash": "6a47d64fcc136324ca395065a707ef76"
+    "mtime": 1789517366.0905945,
+    "seen": 1789517384.7095768,
+    "ast_hash": "4794fea41a32c761067c46b1a9ce620f",
+    "semantic_hash": ""
   },
   "GATES.md": {
     "mtime": 1789515130.7868185,
@@ -1425,6 +1425,12 @@
     "mtime": 1789517269.3375425,
     "seen": 1789517313.8656828,
     "ast_hash": "ff7c46aa966f7fcaa744901926a78580",
+    "semantic_hash": ""
+  },
+  "CLAUDE.md": {
+    "mtime": 1789517369.3688838,
+    "seen": 1789517384.709578,
+    "ast_hash": "c6a72040fc3cc047a6fb2158dd681013",
     "semantic_hash": ""
   }
 }

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-16T00:08:41.726801+00:00",
+  "generated_at": "2026-09-16T00:10:10.179668+00:00",
   "nodes": {
     "src_widgets_contract_toolinput": {
       "code_fingerprint": "251a9f9b9387756a79a0185ffda81dd2ae6a685f4e556bfe490be1c285521bef",
@@ -12,7 +12,7 @@
           "q": "Why does ToolOutput connect Bridge Toolinput across 17 different widget, route, and fixture communities?"
         }
       ],
-      "score": 0.99998599,
+      "score": 0.999962337,
       "source_file": "src/widgets/contract.ts",
       "status": "tentative",
       "uses": 1
@@ -28,7 +28,7 @@
           "q": "Why does ToolOutput connect Bridge Toolinput across 17 different widget, route, and fixture communities?"
         }
       ],
-      "score": 0.99998599,
+      "score": 0.999962337,
       "source_file": "src/widgets/contract.ts",
       "status": "tentative",
       "uses": 1
@@ -44,7 +44,7 @@
           "q": "Why does ToolOutput connect Bridge Toolinput across 17 different widget, route, and fixture communities?"
         }
       ],
-      "score": 0.99998599,
+      "score": 0.999962337,
       "source_file": "widgets/src/bridge/useToolQuery.ts",
       "status": "tentative",
       "uses": 1
@@ -60,7 +60,7 @@
           "q": "Why does ToolOutput connect Bridge Toolinput across 17 different widget, route, and fixture communities?"
         }
       ],
-      "score": 0.99998599,
+      "score": 0.999962337,
       "source_file": "widgets/src/routes/pembelian.tsx",
       "status": "tentative",
       "uses": 1
