@@ -1,0 +1,70 @@
+{
+  "generated_at": "2026-09-16T00:08:41.726801+00:00",
+  "nodes": {
+    "src_widgets_contract_toolinput": {
+      "code_fingerprint": "251a9f9b9387756a79a0185ffda81dd2ae6a685f4e556bfe490be1c285521bef",
+      "label": "ToolInput",
+      "last": "2026-09-16T00:07:49.337258+00:00",
+      "provenance": [
+        {
+          "date": "2026-09-16T00:07:49.337258+00:00",
+          "outcome": "useful",
+          "q": "Why does ToolOutput connect Bridge Toolinput across 17 different widget, route, and fixture communities?"
+        }
+      ],
+      "score": 0.99998599,
+      "source_file": "src/widgets/contract.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "src_widgets_contract_tooloutput": {
+      "code_fingerprint": "251a9f9b9387756a79a0185ffda81dd2ae6a685f4e556bfe490be1c285521bef",
+      "label": "ToolOutput",
+      "last": "2026-09-16T00:07:49.337258+00:00",
+      "provenance": [
+        {
+          "date": "2026-09-16T00:07:49.337258+00:00",
+          "outcome": "useful",
+          "q": "Why does ToolOutput connect Bridge Toolinput across 17 different widget, route, and fixture communities?"
+        }
+      ],
+      "score": 0.99998599,
+      "source_file": "src/widgets/contract.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "widgets_src_bridge_usetoolquery_usetoolquery": {
+      "code_fingerprint": "da152c2f5b8596d40d97b7cd6a3ff8bf60fe06e23728c6783efc16183c30527b",
+      "label": "useToolQuery()",
+      "last": "2026-09-16T00:07:49.337258+00:00",
+      "provenance": [
+        {
+          "date": "2026-09-16T00:07:49.337258+00:00",
+          "outcome": "useful",
+          "q": "Why does ToolOutput connect Bridge Toolinput across 17 different widget, route, and fixture communities?"
+        }
+      ],
+      "score": 0.99998599,
+      "source_file": "widgets/src/bridge/useToolQuery.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "widgets_src_routes_pembelian_pembelianpage": {
+      "code_fingerprint": "633930d4913a225fd32dcaeb45ca488e78698eea3af0f3a3657f4107c131ad33",
+      "label": "PembelianPage()",
+      "last": "2026-09-16T00:07:49.337258+00:00",
+      "provenance": [
+        {
+          "date": "2026-09-16T00:07:49.337258+00:00",
+          "outcome": "useful",
+          "q": "Why does ToolOutput connect Bridge Toolinput across 17 different widget, route, and fixture communities?"
+        }
+      ],
+      "score": 0.99998599,
+      "source_file": "widgets/src/routes/pembelian.tsx",
+      "status": "tentative",
+      "uses": 1
+    }
+  },
+  "version": 1
+}

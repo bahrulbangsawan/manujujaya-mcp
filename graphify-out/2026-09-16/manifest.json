@@ -198,10 +198,10 @@
     "semantic_hash": "25ff5048654b801deefe2f9a693e863f"
   },
   "src/connect/html.ts": {
-    "mtime": 1789517067.1506062,
-    "seen": 1789517124.522229,
-    "ast_hash": "f75f2614cc231b0d90e4a1cda45fad43",
-    "semantic_hash": "f75f2614cc231b0d90e4a1cda45fad43"
+    "mtime": 1789517183.8472786,
+    "seen": 1789517350.517786,
+    "ast_hash": "bda631540a13c86108d52f7fc88f8e58",
+    "semantic_hash": "bda631540a13c86108d52f7fc88f8e58"
   },
   "src/connect/login-continue.ts": {
     "mtime": 1789462755.1195772,
@@ -462,10 +462,10 @@
     "semantic_hash": "9247c9421e4a12170ed9c9f4b53000fb"
   },
   "src/web/html.ts": {
-    "mtime": 1789516961.0023282,
-    "seen": 1789517124.522256,
-    "ast_hash": "efc18623a265a765279699f0e3852f4e",
-    "semantic_hash": "efc18623a265a765279699f0e3852f4e"
+    "mtime": 1789517179.2576535,
+    "seen": 1789517350.518753,
+    "ast_hash": "f594e3870e0977760fe19d88717e4c12",
+    "semantic_hash": "f594e3870e0977760fe19d88717e4c12"
   },
   "src/widgets/budget.ts": {
     "mtime": 1789515130.798393,
@@ -1229,12 +1229,6 @@
     "ast_hash": "d9149b16c67071b68a432c97e66fe79a",
     "semantic_hash": "d9149b16c67071b68a432c97e66fe79a"
   },
-  ".pencil-handoff.html": {
-    "mtime": 1789516718.5677245,
-    "seen": 1789517124.522336,
-    "ast_hash": "32a5662ad9ddfec0e9af42751cce9e33",
-    "semantic_hash": "32a5662ad9ddfec0e9af42751cce9e33"
-  },
   "AGENTS.md": {
     "mtime": 1789516837.9905057,
     "seen": 1789517124.522336,
@@ -1426,5 +1420,11 @@
     "seen": 1789517124.5223548,
     "ast_hash": "7a3753257223af21184ff0b34f284c7f",
     "semantic_hash": "7a3753257223af21184ff0b34f284c7f"
+  },
+  "graphify-out/memory/query_20260916_000749_why_does_tooloutput_connect_bridge_toolinput_acros.md": {
+    "mtime": 1789517269.3375425,
+    "seen": 1789517313.8656828,
+    "ast_hash": "ff7c46aa966f7fcaa744901926a78580",
+    "semantic_hash": ""
   }
 }
