@@ -57,7 +57,7 @@ Good to know:
 
 Pick your app below. The URL is always `https://mcp.manujujaya.com/mcp`. You do not need a client ID, client secret or API key; the app registers itself automatically.
 
-> **Only Claude Code has been tested so far.** The server accepts only the newest MCP protocol version (`2026-07-28`). If your app fails with error `-32022` or "Unsupported protocol version", it uses an older version; ask the developer to turn on legacy mode (see [Troubleshooting](#5-troubleshooting)).
+> **Only Claude Code has been tested so far.** The server speaks MCP `2026-07-28` and also serves 2025-era `initialize` clients (`2025-06-18`) with `MCP_LEGACY_MODE=stateless`. If your app fails with error `-32022` or "Unsupported protocol version", see [Troubleshooting](#5-troubleshooting).
 
 #### Claude.ai, Claude Desktop and the Claude mobile apps
 
@@ -515,6 +515,7 @@ Production secrets are `OWNER_PASSWORD` (at least 16 characters) and `SESSION_EN
 | Connecting the Qasir session | [docs/connect-qasir.md](docs/connect-qasir.md) |
 | Local development, deploy, OAuth, secrets | [docs/architecture/setup.md](docs/architecture/setup.md) |
 | Operations runbook and troubleshooting | [docs/architecture/operations.md](docs/architecture/operations.md) |
+| OMP OAuth account pools on macOS | [docs/architecture/omp-auth-pool-macos.md](docs/architecture/omp-auth-pool-macos.md) |
 | Architecture and compatibility | [docs/architecture/overview.md](docs/architecture/overview.md) |
 | Security model | [docs/architecture/security.md](docs/architecture/security.md) |
 | API coverage (generated) | [docs/architecture/coverage.md](docs/architecture/coverage.md) |

@@ -63,15 +63,13 @@ Qasir session status: open `https://mcp.manujujaya.com/connect/status` while sig
 
 ## Legacy 2025-era clients (error 32022)
 
-Production runs `legacy: "reject"`, which serves only `2026-07-28`. An `initialize`-based client, or one sending an older `MCP-Protocol-Version`, gets HTTP 400 with JSON-RPC error `-32022` whose `data` lists `supported: ["2026-07-28"]`.
+Production currently runs `legacy: "stateless"`: 2025-era `initialize` clients (`2025-06-18`) are served per request with the same auth and tools as `2026-07-28`. Modern clients still negotiate `2026-07-28`.
 
-To serve such clients too (stateless, per request, same auth and tools):
+To reject those clients again (HTTP 400, JSON-RPC `-32022`, `data.supported: ["2026-07-28"]`):
 
-1. Set `"MCP_LEGACY_MODE": "stateless"` in `wrangler.jsonc` `vars`. Do not change it in the dashboard, because the next deploy resets it.
+1. Set `"MCP_LEGACY_MODE": "reject"` in `wrangler.jsonc` `vars`. Do not change it in the dashboard, because the next deploy resets it.
 2. `bunx wrangler deploy`
-3. Verify: `bun run scripts/e2e-mcp.ts --base https://mcp.manujujaya.com` should print `INFO legacy (2025 initialize) client connected`.
-
-Set it back to `reject` when the clients no longer need it.
+3. Verify: `bun run scripts/e2e-mcp.ts --base https://mcp.manujujaya.com` should print `INFO legacy (2025 initialize) client rejected`.
 
 ## Enabling mutations
 

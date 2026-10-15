@@ -42,7 +42,7 @@
     "ENABLE_WIDGETS": "true",
     "ALLOW_DEV_PSK": "false",
     "REQUIRE_SESSION_ENCRYPTION": "true",
-    "MCP_LEGACY_MODE": "reject",
+    "MCP_LEGACY_MODE": "stateless",
     "MCP_SERVER_NAME": "manujujaya-mcp",
     "MCP_SERVER_VERSION": "0.3.0"
   }

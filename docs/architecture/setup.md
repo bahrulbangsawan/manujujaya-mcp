@@ -113,7 +113,7 @@ bun run scripts/e2e-mcp.ts --base https://mcp.manujujaya.com --live
 | `durable_objects` | `MUTATION_APPROVALS` → `MutationApprovalsDO`, `QASIR_SESSIONS` → `QasirSessionsDO` | Approvals, Qasir session, rate limits |
 | `migrations` | `v1`: `new_sqlite_classes: [MutationApprovalsDO, QasirSessionsDO]` | SQLite-backed DOs. Add a **new** tag for any class change; never edit `v1` |
 | `observability` | `enabled: true`, `head_sampling_rate: 1` | Workers Logs for every request |
-| `vars` | `PUBLIC_BASE_URL=https://mcp.manujujaya.com`, `MERCHANT_SLUG`, `DEFAULT_OUTLET_ID`, `ENABLE_MUTATIONS=false`, `ENABLE_WIDGETS=true`, `ALLOW_DEV_PSK=false`, `REQUIRE_SESSION_ENCRYPTION=true`, `MCP_LEGACY_MODE=reject`, `MCP_SERVER_NAME`, `MCP_SERVER_VERSION` | Change vars **in this file** and redeploy. `wrangler deploy` (without `--keep-vars`) resets vars edited in the dashboard |
+| `vars` | `PUBLIC_BASE_URL=https://mcp.manujujaya.com`, `MERCHANT_SLUG`, `DEFAULT_OUTLET_ID`, `ENABLE_MUTATIONS=false`, `ENABLE_WIDGETS=true`, `ALLOW_DEV_PSK=false`, `REQUIRE_SESSION_ENCRYPTION=true`, `MCP_LEGACY_MODE=stateless`, `MCP_SERVER_NAME`, `MCP_SERVER_VERSION` | Change vars **in this file** and redeploy. `wrangler deploy` (without `--keep-vars`) resets vars edited in the dashboard |
 
 ### First-time setup (already done for production)
 
