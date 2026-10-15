@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-09-16T00:10:10.179668+00:00",
+  "generated_at": "2026-09-16T02:47:40.731342+00:00",
   "nodes": {
     "src_widgets_contract_toolinput": {
-      "code_fingerprint": "251a9f9b9387756a79a0185ffda81dd2ae6a685f4e556bfe490be1c285521bef",
+      "code_fingerprint": "716e75c88513a72fcef8e0907423f135f60c7b2971b4e8cd3a8d28ee3b8f713e",
       "label": "ToolInput",
       "last": "2026-09-16T00:07:49.337258+00:00",
       "provenance": [
@@ -12,13 +12,13 @@
           "q": "Why does ToolOutput connect Bridge Toolinput across 17 different widget, route, and fixture communities?"
         }
       ],
-      "score": 0.999962337,
+      "score": 0.997438376,
       "source_file": "src/widgets/contract.ts",
       "status": "tentative",
       "uses": 1
     },
     "src_widgets_contract_tooloutput": {
-      "code_fingerprint": "251a9f9b9387756a79a0185ffda81dd2ae6a685f4e556bfe490be1c285521bef",
+      "code_fingerprint": "716e75c88513a72fcef8e0907423f135f60c7b2971b4e8cd3a8d28ee3b8f713e",
       "label": "ToolOutput",
       "last": "2026-09-16T00:07:49.337258+00:00",
       "provenance": [
@@ -28,7 +28,7 @@
           "q": "Why does ToolOutput connect Bridge Toolinput across 17 different widget, route, and fixture communities?"
         }
       ],
-      "score": 0.999962337,
+      "score": 0.997438376,
       "source_file": "src/widgets/contract.ts",
       "status": "tentative",
       "uses": 1
@@ -44,7 +44,7 @@
           "q": "Why does ToolOutput connect Bridge Toolinput across 17 different widget, route, and fixture communities?"
         }
       ],
-      "score": 0.999962337,
+      "score": 0.997438376,
       "source_file": "widgets/src/bridge/useToolQuery.ts",
       "status": "tentative",
       "uses": 1
@@ -60,7 +60,7 @@
           "q": "Why does ToolOutput connect Bridge Toolinput across 17 different widget, route, and fixture communities?"
         }
       ],
-      "score": 0.999962337,
+      "score": 0.997438376,
       "source_file": "widgets/src/routes/pembelian.tsx",
       "status": "tentative",
       "uses": 1

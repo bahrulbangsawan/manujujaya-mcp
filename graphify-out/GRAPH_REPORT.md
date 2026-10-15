@@ -1,4 +1,4 @@
-# Graph Report - manujujaya-mcp  (2026-09-16)
+# Graph Report - manujujaya-mcp  (2026-10-15)
 
 ## Corpus Check
 - 235 files · ~268,572 words
@@ -10,12 +10,12 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `715e2843`
+- Built from commit: `b14607a2`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- connect.test.ts
+- bridge.ts
 - transactions.ts
 - allowlist.test.ts
 - mcp-wire.test.ts
@@ -56,7 +56,7 @@
 - qasir-dispatcher.ts
 - Execution lanes
 - Qasir Products
-- connect-login.test.ts
+- connect.test.ts
 - coverage.ts
 - openapi.ts
 - crypto.ts
@@ -81,6 +81,7 @@
 - login-continue.ts
 - search.ts
 - cloudflare-workers.ts
+- connect-login.test.ts
 - MemoryStorage
 - OrderDetailSheet.tsx
 - Q: Why does ToolOutput connect Bridge Toolinput across 17 different widget, route, and fixture communities?
@@ -109,7 +110,6 @@
 - @testing-library/dom
 - fake-worker-loader.ts
 - @types/react
-- bridge.ts
 - typescript
 - vite
 - vite-plugin-singlefile
@@ -176,12 +176,12 @@
   tests/unit/widgets-budget.test.ts → src/widgets/budget.ts
 
 ## Import Cycles
-- 3-file cycle: `widgets/src/app/router.tsx -> widgets/src/routes/index.ts -> widgets/src/routes/transaksi.tsx -> widgets/src/app/router.tsx`
 - 3-file cycle: `widgets/src/app/router.tsx -> widgets/src/routes/index.ts -> widgets/src/routes/piutang.tsx -> widgets/src/app/router.tsx`
-- 3-file cycle: `widgets/src/app/router.tsx -> widgets/src/routes/index.ts -> widgets/src/routes/penjualan.tsx -> widgets/src/app/router.tsx`
+- 3-file cycle: `widgets/src/app/router.tsx -> widgets/src/routes/index.ts -> widgets/src/routes/transaksi.tsx -> widgets/src/app/router.tsx`
 - 3-file cycle: `widgets/src/app/router.tsx -> widgets/src/routes/index.ts -> widgets/src/routes/pembelian.tsx -> widgets/src/app/router.tsx`
-- 3-file cycle: `widgets/src/app/router.tsx -> widgets/src/routes/index.ts -> widgets/src/routes/produk.tsx -> widgets/src/app/router.tsx`
 - 3-file cycle: `widgets/src/app/router.tsx -> widgets/src/routes/index.ts -> widgets/src/routes/stok.tsx -> widgets/src/app/router.tsx`
+- 3-file cycle: `widgets/src/app/router.tsx -> widgets/src/routes/index.ts -> widgets/src/routes/penjualan.tsx -> widgets/src/app/router.tsx`
+- 3-file cycle: `widgets/src/app/router.tsx -> widgets/src/routes/index.ts -> widgets/src/routes/produk.tsx -> widgets/src/app/router.tsx`
 - 4-file cycle: `widgets/src/app/router.tsx -> widgets/src/routes/index.ts -> widgets/src/routes/piutang.tsx -> widgets/src/routes/transaksi.tsx -> widgets/src/app/router.tsx`
 
 ## Hyperedges (group relationships)
@@ -190,9 +190,9 @@
 
 ## Communities (141 total, 56 thin omitted)
 
-### Community 0 - "connect.test.ts"
-Cohesion: 0.15
-Nodes (18): buildDashboardRedirect(), LoginNextStep, matchConfiguredMerchant(), MatchConfiguredMerchantResult, normalizeMerchants(), normalizeOutlets(), ParsedLoginResponse, ParsedMerchant (+10 more)
+### Community 0 - "bridge.ts"
+Cohesion: 0.05
+Nodes (68): TOOL_SCHEMAS, ToolInput, ToolName, ToolOutput, FIXTURES, APP_INFO, atViewDefaults(), HostedShell() (+60 more)
 
 ### Community 1 - "transactions.ts"
 Cohesion: 0.07
@@ -342,9 +342,9 @@ Nodes (20): Execution lanes, File Structure, Global Constraints, MCP App Widgets
 Cohesion: 0.17
 Nodes (12): Dashboard HTML (the `/products` page), Endpoint, Example request, Headers, Implementation notes, Inventories list (not documented here), Pagination, Qasir Products (+4 more)
 
-### Community 41 - "connect-login.test.ts"
-Cohesion: 0.19
-Nodes (12): loadDevVars(), main(), mask(), summarizeProducts(), runQasirLoginFlow(), normalizeUsername(), fixtures, Handler (+4 more)
+### Community 41 - "connect.test.ts"
+Cohesion: 0.15
+Nodes (18): buildDashboardRedirect(), LoginNextStep, matchConfiguredMerchant(), MatchConfiguredMerchantResult, normalizeMerchants(), normalizeOutlets(), ParsedLoginResponse, ParsedMerchant (+10 more)
 
 ### Community 42 - "coverage.ts"
 Cohesion: 0.23
@@ -442,6 +442,10 @@ Nodes (28): isoDate, PO_STATUS_FILTERS, ViewName, VIEWS, AppShell(), customerIdP
 Cohesion: 0.29
 Nodes (4): DurableObject, env, RpcTarget, WorkerEntrypoint
 
+### Community 67 - "connect-login.test.ts"
+Cohesion: 0.19
+Nodes (12): loadDevVars(), main(), mask(), summarizeProducts(), runQasirLoginFlow(), normalizeUsername(), fixtures, Handler (+4 more)
+
 ### Community 69 - "OrderDetailSheet.tsx"
 Cohesion: 0.09
 Nodes (24): BarList(), BarListItem, ErrorPanel(), ChangeLine(), KpiChange, KpiTile(), LoadMoreFooter(), LoadMoreFooterProps (+16 more)
@@ -486,10 +490,6 @@ Nodes (10): SessionStorage, Call, doFor(), fixtures, installQasir(), load(), Mem
 Cohesion: 0.29
 Nodes (6): CodeExecutorClass, CodeExecutorInstance, createSandboxContext(), EvaluateResponse, FakeWorkerLoader, moduleSource()
 
-### Community 96 - "bridge.ts"
-Cohesion: 0.05
-Nodes (68): TOOL_SCHEMAS, ToolInput, ToolName, ToolOutput, FIXTURES, APP_INFO, atViewDefaults(), HostedShell() (+60 more)
-
 ### Community 101 - "dispatcher-transport.test.ts"
 Cohesion: 0.17
 Nodes (5): DispatcherLimits, FetchArgs, Handler, LIST, setup()
@@ -514,9 +514,9 @@ Nodes (6): engines, node, name, private, type, version
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `AppError` connect `AppError` to `connect.test.ts`, `transactions.ts`, `allowlist.test.ts`, `mcp-wire.test.ts`, `contract.ts`, `widgets-stock.test.ts`, `debts.ts`, `run.ts`, `widgets-sales.test.ts`, `define.ts`, `session/types.ts`, `server.ts`, `validate.ts`, `owner-routes.ts`, `src/index.ts`, `widget-tools.test.ts`, `ExecutionBudget`, `MutationApprovalsDO`, `connect/routes.ts`, `qasir-dispatcher.ts`, `crypto.ts`, `codes.ts`, `QasirDispatcher`, `qasir-dates.ts`, `login-continue.ts`, `paste.ts`, `upstream.ts`?**
+- **Why does `AppError` connect `AppError` to `transactions.ts`, `allowlist.test.ts`, `mcp-wire.test.ts`, `contract.ts`, `widgets-stock.test.ts`, `debts.ts`, `run.ts`, `widgets-sales.test.ts`, `define.ts`, `session/types.ts`, `server.ts`, `validate.ts`, `owner-routes.ts`, `src/index.ts`, `widget-tools.test.ts`, `ExecutionBudget`, `MutationApprovalsDO`, `connect/routes.ts`, `qasir-dispatcher.ts`, `connect.test.ts`, `crypto.ts`, `codes.ts`, `QasirDispatcher`, `qasir-dates.ts`, `login-continue.ts`, `paste.ts`, `upstream.ts`?**
   _High betweenness centrality (0.121) - this node is a cross-community bridge._
-- **Why does `ErrorCodes` connect `codes.ts` to `connect.test.ts`, `transactions.ts`, `allowlist.test.ts`, `mcp-wire.test.ts`, `contract.ts`, `widgets-stock.test.ts`, `debts.ts`, `run.ts`, `widgets-sales.test.ts`, `define.ts`, `session/types.ts`, `server.ts`, `validate.ts`, `owner-routes.ts`, `widget-tools.test.ts`, `connect/routes.ts`, `qasir-dispatcher.ts`, `crypto.ts`, `QasirDispatcher`, `qasir-dates.ts`, `paste.ts`, `upstream.ts`, `dispatcher-transport.test.ts`?**
+- **Why does `ErrorCodes` connect `codes.ts` to `transactions.ts`, `allowlist.test.ts`, `mcp-wire.test.ts`, `contract.ts`, `widgets-stock.test.ts`, `debts.ts`, `run.ts`, `widgets-sales.test.ts`, `define.ts`, `session/types.ts`, `server.ts`, `validate.ts`, `owner-routes.ts`, `widget-tools.test.ts`, `connect/routes.ts`, `qasir-dispatcher.ts`, `connect.test.ts`, `crypto.ts`, `QasirDispatcher`, `qasir-dates.ts`, `paste.ts`, `upstream.ts`, `dispatcher-transport.test.ts`?**
   _High betweenness centrality (0.045) - this node is a cross-community bridge._
 - **Why does `ToolOutput` connect `bridge.ts` to `transactions.ts`, `contract.ts`, `widgets-stock.test.ts`, `debts.ts`, `OrderDetailSheet.tsx`, `stok.tsx`, `stock.ts`, `widgets-sales.test.ts`, `transaksi.tsx`, `sales.ts`, `fixtures.ts`, `piutang.tsx`?**
   _High betweenness centrality (0.026) - this node is a cross-community bridge._
@@ -524,7 +524,7 @@ _Questions this graph is uniquely positioned to answer:_
   _`handleConnectRoutes()` has 5 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `name`, `version`, `private` to the rest of the system?**
   _649 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `bridge.ts` be split into smaller, more focused modules?**
+  _Cohesion score 0.05020850708924104 - nodes in this community are weakly interconnected._
 - **Should `transactions.ts` be split into smaller, more focused modules?**
   _Cohesion score 0.0748663101604278 - nodes in this community are weakly interconnected._
-- **Should `mcp-wire.test.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.11517165005537099 - nodes in this community are weakly interconnected._

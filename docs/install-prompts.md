@@ -5,7 +5,7 @@
 | Server URL | `https://mcp.manujujaya.com/mcp` |
 | Transport | Streamable HTTP (remote). No stdio binary, no API key header |
 | Auth | OAuth. The client opens a browser consent page; approve with the **owner password** |
-| Protocol | MCP `2026-07-28`. 2025-era clients get error `-32022` unless the operator enables legacy mode ([operations.md](architecture/operations.md#legacy-2025-era-clients-error-32022)) |
+| Protocol | MCP `2026-07-28`. Production also serves 2025-era clients via `MCP_LEGACY_MODE=stateless` ([operations.md](architecture/operations.md#legacy-2025-era-clients-error-32022)) |
 
 On the consent page, check that **"Redirects to"** matches your app (`https://claude.ai` for Claude.ai/Desktop, `http://localhost` for Claude Code and most desktop/CLI clients). Leave `qasir:read` ticked, and tick `qasir:write` only if the operator has enabled mutations and you need them. Only approve a connection you just started.
 
